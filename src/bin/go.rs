@@ -3,7 +3,7 @@ use bundler::{Bundle, FileMapLoader, Resolved};
 fn main() {
     println!("going");
 
-    // let mut bundle = Bundle::default();
+    // This is the mapping of files referenced to the cached copies on disk.
     let mut bundle = Bundle::new(
         FileMapLoader::default()
             .add(

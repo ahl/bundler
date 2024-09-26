@@ -23,6 +23,7 @@ mod append_map;
 mod bool_or;
 mod bootstrap;
 mod canonical;
+mod generic;
 mod ir;
 mod loader;
 
@@ -74,6 +75,7 @@ impl Default for Bundle {
 pub struct LoadError(pub String);
 
 pub trait Loader {
+    /// Return the canonical contents for the given URL.
     fn load(&self, url: Url) -> Result<String, LoadError>;
 }
 
