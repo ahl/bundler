@@ -22,8 +22,6 @@ type _XXX = ();
 mod append_map;
 mod bool_or;
 mod bootstrap;
-mod canonical;
-mod generic;
 mod ir;
 mod loader;
 
@@ -215,11 +213,29 @@ impl Bundle {
         Ok(resolved)
     }
 
-    // TODO do I need to know an $id a priori in case the file doesn't provide
-    // one?
     pub fn load_document<'a>(&'a self, id: &str, contents: &str) -> &'a Document {
         let content: serde_json::Value =
             serde_json::from_str(contents).expect("couldn't parse into a Value");
+
+        // We need to deduce the schema type from the document. In the case of
+        // JSON Schema it might be easy if we see a `$schema` property. For
+        // OpenAPI we could look at the `openapi` field. And if we don't find
+        // those... I guess we'll just have to figure out something...
+        // TODO later
+
+        // TODO If there's no schema defined, we'll need to figure out some
+        // sort of fallback position. We'll want some settings that let us
+        // say things like "ignore $schema and use this" or "if there's no
+        // schema, try whatever" or "if there's no schema only use this"
+
+        let schema = if let Some(schema) = content.get("$schema") {
+            schema
+                .as_str()
+                .expect("we should handle a non-string better")
+                .to_string()
+        } else {
+            todo!("not sure of the schema type");
+        };
 
         // TODO this is wrong; I only want to make this once I have the schema
         let mut document = Document {
@@ -227,18 +243,11 @@ impl Bundle {
             content,
             anchors: Default::default(),
             dyn_anchors: Default::default(),
-            schema: Default::default(),
+            schema: schema.clone(),
         };
-        let schema = document.content.get("$schema");
 
-        match schema.and_then(serde_json::Value::as_str) {
-            // TODO If there's no schema defined, we'll need to figure out some
-            // sort of fallback position. We'll want some settings that let us
-            // say things like "ignore $schema and use this" or "if there's no
-            // schema, try whatever" or "if there's no schema only use this"
-            None => todo!(),
-
-            Some("https://json-schema.org/draft/2020-12/schema") => {
+        match schema.as_ref() {
+            "https://json-schema.org/draft/2020-12/schema" => {
                 bootstrap::Schema::populate_document(&mut document);
             }
             _ => todo!(),
@@ -259,6 +268,15 @@ pub fn to_generic(bundle: &Bundle, context: Context, value: &serde_json::Value, 
         "https://json-schema.org/draft/2020-12/schema" => {
             bootstrap::Schema::to_generic(bundle, context, value);
         }
+        _ => todo!(),
+    }
+}
+
+// TODO should this be fallible? Probably! What if it's a $schema I don't know?
+// What if the serde fails?
+pub fn to_ir(value: &serde_json::Value, schema: &str) -> ir::Schema {
+    match schema {
+        "https://json-schema.org/draft/2020-12/schema" => bootstrap::Schema::to_ir(value),
         _ => todo!(),
     }
 }

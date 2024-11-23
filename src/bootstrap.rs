@@ -6,7 +6,7 @@ use std::{
 // bootstrapping schema
 use serde::{Deserialize, Serialize};
 
-use crate::{bool_or::ObjectOrBool, Bundle, Document, Error, Resolved};
+use crate::{bool_or::ObjectOrBool, ir, Bundle, Document, Error, Resolved};
 
 type SchemaOrBool = ObjectOrBool<Schema>;
 
@@ -107,6 +107,15 @@ enum Type {
     Array(NonEmpty<BTreeSet<SimpleType>>),
 }
 
+impl Type {
+    fn convert(self) -> ir::Type {
+        match self {
+            Type::Single(t) => ir::Type::Single(t.convert()),
+            Type::Array(tt) => ir::Type::Array(tt.0.into_iter().map(SimpleType::convert).collect()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 enum SimpleType {
@@ -117,6 +126,20 @@ enum SimpleType {
     Number,
     Object,
     String,
+}
+
+impl SimpleType {
+    fn convert(self) -> ir::SimpleType {
+        match self {
+            SimpleType::Array => ir::SimpleType::Array,
+            SimpleType::Boolean => ir::SimpleType::Boolean,
+            SimpleType::Integer => ir::SimpleType::Integer,
+            SimpleType::Null => ir::SimpleType::Null,
+            SimpleType::Number => ir::SimpleType::Number,
+            SimpleType::Object => ir::SimpleType::Object,
+            SimpleType::String => ir::SimpleType::String,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -362,6 +385,7 @@ impl Schema {
         Ok(document)
     }
 
+    // TODO keeping this around; I'm killing the idea of a generic schema
     pub(crate) fn to_generic(bundler: &Bundle, context: crate::Context, value: &serde_json::Value) {
         let schema = Schema::deserialize(value).unwrap();
 
@@ -377,6 +401,84 @@ impl Schema {
                     schema,
                 } = bundler.resolve(&context, reference).unwrap();
             }
+        }
+    }
+
+    pub(crate) fn to_ir(value: &serde_json::Value) -> ir::Schema {
+        let schema = Schema::deserialize(value).unwrap();
+        schema.convert()
+    }
+
+    fn convert(self) -> ir::Schema {
+        let Schema {
+            schema: _,
+            id,
+            dynamic_anchor,
+            dynamic_ref,
+            r#ref,
+            vocabulary: _,
+            comment,
+            defs: _,
+            title,
+            r#type,
+            properties,
+            all_of,
+            any_of,
+            items,
+            min_items,
+            pattern,
+            format,
+            additional_properties,
+            deprecated,
+            default,
+            property_names,
+            minimum,
+            exclusive_minimum,
+            r#enum,
+            unique_items,
+        } = self;
+
+        ir::Schema {
+            metadata: ir::SchemaMetadata {
+                id,
+                title,
+                comment,
+                default,
+            },
+            details: ir::SchemaDetails::Any {
+                dynamic_anchor,
+                dynamic_ref,
+                r#ref,
+                r#type: r#type.map(Type::convert),
+                properties: properties
+                    .into_iter()
+                    .map(|(key, schema)| (key, schema.convert()))
+                    .collect(),
+                all_of: all_of.map(|v| v.0.into_iter().map(SchemaOrBool::convert).collect()),
+                any_of: any_of.map(|v| v.0.into_iter().map(SchemaOrBool::convert).collect()),
+                one_of: None,
+                items: items.map(SchemaOrBool::convert),
+                min_items,
+                pattern,
+                format,
+                additional_properties: additional_properties.map(SchemaOrBool::convert),
+                deprecated,
+                property_names: property_names.map(SchemaOrBool::convert),
+                minimum,
+                exclusive_minimum,
+                r#enum,
+                unique_items,
+            },
+        }
+    }
+}
+
+impl SchemaOrBool {
+    fn convert(self) -> ObjectOrBool<ir::Schema> {
+        match self {
+            // TODO interesting
+            ObjectOrBool::Bool(b) => ObjectOrBool::Bool(b),
+            ObjectOrBool::Object(s) => ObjectOrBool::Object(s.convert().into()),
         }
     }
 }
