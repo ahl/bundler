@@ -7,8 +7,10 @@ use crate::{LoadError, Loader};
 pub struct NullLoader;
 
 impl Loader for NullLoader {
-    fn load(&self, _url: url::Url) -> Result<String, LoadError> {
-        Err(LoadError("no loader configured".to_string()))
+    fn load(&self, url: url::Url) -> Result<String, LoadError> {
+        Err(LoadError(format!(
+            "no loader configured; unable to load {url}"
+        )))
     }
 }
 

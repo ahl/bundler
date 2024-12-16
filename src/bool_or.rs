@@ -40,7 +40,7 @@ where
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(formatter, "object or bool")
     }
-
+    
     fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
     where
         E: serde::de::Error,

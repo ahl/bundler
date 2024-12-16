@@ -22,7 +22,7 @@ type _XXX = ();
 mod append_map;
 mod bool_or;
 mod bootstrap;
-mod ir;
+pub mod ir;
 mod loader;
 
 pub use loader::*;
@@ -55,6 +55,26 @@ pub use loader::*;
 /// could allow for multi-version, cross-schema references just returning a
 /// blob along with the $schema value for the containing document.
 ///
+/// What is the interaction between progenitor and typify via the Bundle?
+/// ---------------------------------------------------------------------
+///
+/// Progenitor is going to put its full document into the Bundle and then
+/// extract an OpenAPI document from it.
+///
+/// We probably assume typify grows native support for OpenAPI v3.0.x schema.
+///
+/// When progenitor arrives at a schema... then what? There are a couple of
+/// possibilities:
+/// - As it does today, it could deserialize the schema into structures and
+///   then pass the structure into typify. It seems non-crazy to think that
+///   typify might be able to accept a materialized structure (i.e. as opposed
+///   to only a serde_json::Value or bundle path).
+/// - The deserialization of the OpenAPI document could stub out schemas as
+///   either Values or paths.
+///
+/// Note that the latter option is almost certainly what we'll need to do for
+/// OpenAPI v3.1 in light of the jsonSchema property that allows the document
+/// to change the default interpretation of schemas.
 pub struct Bundle {
     documents: AppendMap<String, Document>,
     loader: Box<dyn Loader>,
@@ -194,6 +214,7 @@ impl Bundle {
 
         // The dynamic anchors of the incoming context *intentionally*
         // overwrite those of the document.
+        // TODO is this right???
         let mut dyn_anchors = doc.dyn_anchors.clone();
         for (k, v) in &context.dyn_anchors {
             dyn_anchors.insert(k.clone(), v.clone());
@@ -259,6 +280,7 @@ impl Bundle {
 
 #[derive(Debug, Clone)]
 pub struct Context {
+    // TODO this is the full url i.e. base + # + path
     id: String,
     dyn_anchors: BTreeMap<String, String>,
 }
@@ -274,9 +296,16 @@ pub fn to_generic(bundle: &Bundle, context: Context, value: &serde_json::Value, 
 
 // TODO should this be fallible? Probably! What if it's a $schema I don't know?
 // What if the serde fails?
-pub fn to_ir(value: &serde_json::Value, schema: &str) -> ir::Schema {
-    match schema {
-        "https://json-schema.org/draft/2020-12/schema" => bootstrap::Schema::to_ir(value),
+// pub fn to_ir(value: &serde_json::Value, schema: &str) -> ir::Schema {
+//     match schema {
+//         "https://json-schema.org/draft/2020-12/schema" => bootstrap::Schema::to_ir(value),
+//         _ => todo!(),
+//     }
+// }
+
+pub fn xxx_to_ir(xxx: &Resolved<'_>) -> anyhow::Result<Vec<(ir::SchemaRef, ir::Schema)>> {
+    match xxx.schema {
+        "https://json-schema.org/draft/2020-12/schema" => bootstrap::Schema::xxx_to_ir(xxx),
         _ => todo!(),
     }
 }

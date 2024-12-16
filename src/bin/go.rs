@@ -1,4 +1,6 @@
-use bundler::{Bundle, FileMapLoader, Resolved};
+use std::collections::BTreeMap;
+
+use bundler::{ir, xxx_to_ir, Bundle, FileMapLoader, Resolved};
 
 fn main() {
     println!("going");
@@ -90,38 +92,132 @@ fn main() {
     //
     // Progenitor needs some way of saying: "here's some text or here's some
     // serde_json::Value and I know the $schema is X so go do your thing"
-    let xxx = bundle
-        .resolve(&context, "#")
-        .expect("resolving the root reference cannot fail");
+    // let xxx = bundle
+    //     .resolve(&context, "#")
+    //     .expect("resolving the root reference cannot fail");
 
-    let mut proto = vec![xxx];
-    let mut schemas = Vec::new();
+    // let mut proto = vec![xxx];
+    // let mut schemas = Vec::new();
 
-    loop {
-        if let Some(Resolved {
-            context,
-            value,
-            schema,
-        }) = proto.pop()
-        {
-            println!("got {:?} '{}'", context, schema);
-            let schema = bundler::to_ir(value, schema);
+    // loop {
+    //     if let Some(Resolved {
+    //         context,
+    //         value,
+    //         schema,
+    //     }) = proto.pop()
+    //     {
+    //         println!("got {:?} '{}'", context, schema);
+    //         let schema = bundler::to_ir(value, schema);
 
-            let deps = schema.list_subschema_refs();
-            for dep in deps {
-                let www = bundle.resolve(&context, dep).expect("bad ref?");
-                println!("resolved {:?}", www.context);
-                proto.push(www);
+    //         let deps = schema.list_subschema_refs();
+    //         for dep in deps {
+    //             let www = bundle.resolve(&context, dep).expect("bad ref?");
+    //             println!("resolved {:?}", www.context);
+    //             proto.push(www);
+    //         }
+
+    //         schemas.push(schema);
+    //     } else if let Some(schema) = schemas.pop() {
+    //         println!("{:#?}", schema);
+    //         todo!();
+    //     } else {
+    //         break;
+    //     }
+    // }
+
+    // Each "raw" schema may represent **many** nested schemas. If we maintin
+    // the nesting, then we will need to recursively descend into nested
+    // schemas. Instead, we extract each schema in isolation and retain a
+    // reference based on the document and path. We represent these isolated
+    // schemas in the IR that we manipulate into the eventual canonical form.
+    //
+    // We start with the root schema.
+    // XXX we have at least two kinds of work queues, I think:
+    // - completed work in the form of IR in canonical form
+    // - initial IR as derived form the raw schemas (many:1)
+    // - some way of following references to get more raw schemas
+    //
+    // Wrt that last category, I could imagine something like a raw schema
+    // work queue that we prioritize highest. We'd add new entries to it when
+    // trying to canonicalize an IR and finding a reference (maybe?). We also
+    // need some idea of dependencies i.e. because we won't be able to
+    // canonicalize an IR until we've done so to its dependencies (i.e.
+    // transitively). If there's an IR we can't yet handle we somehow need to
+    // defer it.
+    //
+    // Could we somehow get all the raw IR before trying to canonicalize it?
+    // The first pass would be to extract all raw schema and produce IR; we
+    // would chase references and iterate. Let's try that pass at least...
+
+    // let xxx = bundle
+    //     .resolve(&context, "#")
+    //     .expect("resolving the root reference cannot fail");
+
+    // bundler::xxx_to_ir(&xxx);
+
+    let mut work = vec![(context, "#".to_string())];
+
+    let mut yyy = BTreeMap::new();
+
+    while let Some((context, path)) = work.pop() {
+        println!();
+        println!("got work");
+        // Step 1: resolve the entity. This will give us a raw value
+        let xxx = bundle.resolve(&context, &path).expect("failed to resolve?");
+
+        // Step 2: from the raw value, produce a number of IRs, one for each
+        // of the distinct schemas (i.e. aware of all the nesting). We should
+        // minimize the amount of effort that goes into generating each. We
+        // need to save all these IRs somewhere.
+        let irs = xxx_to_ir(&xxx).unwrap();
+
+        println!("irs? {:#?}", irs);
+
+        // Step 3: one IR variant is going to be for a bare $ref. For each of those
+        // dump a new item of work into the queue (current context + reference
+        // string)
+
+        for (rr, ir) in irs {
+            if let ir::SchemaDetails::DollarRef(ref_target) = &ir.details {
+                println!("ref: {}", ref_target);
+                work.push((xxx.context.clone(), ref_target.clone()));
             }
-
-            schemas.push(schema);
-        } else if let Some(schema) = schemas.pop() {
-            println!("{:#?}", schema);
-            todo!();
-        } else {
-            break;
+            yyy.insert(rr, ir);
         }
     }
 
+    println!("all {:#?}", yyy);
+
+    // At the end of this loop, we'll have all the unprocessed--i.e.
+    // non-canonical--IRs in some structure indexed by SchemaRef (whatever that
+    // ends up being). At this point we can start to canonicalize them. We can
+    // start wherever and figure out dependencies (I think?).
+
     panic!("got here?");
 }
+
+// 11/26/2024 I'm struggling with a dilemma:
+//
+// I can model the IR in two distinct ways:
+//
+// Self-Contained
+// --------------
+//
+// Each Schema would contain SchemaRef notes that, effectively, index into some
+// lookup table of resolved IR. To process an IR, I'd make sure its
+// dependencies were already resolved (and if not, defer the current IR and
+// schedule those). What I'm not sure of is ... then what? Would I try to
+// stitch the schemas back together into a deeper form? Does that even make
+// sense?
+//
+// Maybe it makes sense to think about the canonical form I expect to get
+// after processing the IR?
+//
+// Deep Trees
+// ----------
+//
+// The other approach is to more faithfully represent the input tree as a deep
+// structure. To turn this into an IR, we'd probably need to chew on it until
+// we hit something that wasn't resolved, then back out, scheduled the
+// dependent work, and pick it up again. It seems sort of inefficient... but
+// maybe it's not so bad.
