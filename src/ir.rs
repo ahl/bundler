@@ -1,45 +1,51 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::Serialize;
+
 // What does a canonical schema look like? I think at the top level it should
 // be a mutually exclusive oneOf (potentially of cardinality 1). Each variant
 // of that array should be (basically) self-contained.
 
 /// TODO need to figure out what this is; probably some doc + path
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum SchemaRef {
     Where(String),
     Partial(String, &'static str),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Schema {
     pub metadata: SchemaMetadata,
     pub details: SchemaDetails,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct SchemaMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SchemaDetailsObject {
     pub properties: BTreeMap<String, SchemaRef>,
     pub additional_properties: Option<SchemaRef>,
     pub required: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SchemaDetailsArray {
     pub items: Option<SchemaRef>,
     pub min_items: Option<u64>,
     pub unique_items: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum SchemaDetailsValue {
     Any,
     Object(SchemaDetailsObject),
@@ -51,7 +57,7 @@ pub enum SchemaDetailsValue {
 }
 
 // #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum SchemaDetails {
     Nothing,
     Anything,
@@ -63,13 +69,13 @@ pub enum SchemaDetails {
     DynamicRef(String),
     Constant(serde_json::Value),
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub enum Type {
     Single(SimpleType),
     Array(BTreeSet<SimpleType>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum SimpleType {
     Array,
     Boolean,

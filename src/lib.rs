@@ -23,6 +23,7 @@ mod append_map;
 mod bool_or;
 mod bootstrap;
 pub mod ir;
+pub mod ir2;
 mod loader;
 
 pub use loader::*;
@@ -108,6 +109,7 @@ pub struct Document {
 #[derive(Debug, Clone)]
 pub struct Error;
 
+#[derive(Debug)]
 pub struct Resolved<'a> {
     pub context: Context,
     pub value: &'a serde_json::Value,
@@ -221,7 +223,7 @@ impl Bundle {
         }
 
         let new_context = Context {
-            id: id.to_string(),
+            id: format!("{}#{}", id, fragment),
             dyn_anchors,
         };
 
@@ -281,7 +283,7 @@ impl Bundle {
 #[derive(Debug, Clone)]
 pub struct Context {
     // TODO this is the full url i.e. base + # + path
-    id: String,
+    pub id: String,
     dyn_anchors: BTreeMap<String, String>,
 }
 
@@ -306,6 +308,13 @@ pub fn to_generic(bundle: &Bundle, context: Context, value: &serde_json::Value, 
 pub fn xxx_to_ir(xxx: &Resolved<'_>) -> anyhow::Result<Vec<(ir::SchemaRef, ir::Schema)>> {
     match xxx.schema {
         "https://json-schema.org/draft/2020-12/schema" => bootstrap::Schema::xxx_to_ir(xxx),
+        _ => todo!(),
+    }
+}
+
+pub fn xxx_to_ir2(resolved: &Resolved<'_>) -> anyhow::Result<Vec<(ir2::SchemaRef, ir2::Schema)>> {
+    match resolved.schema {
+        "https://json-schema.org/draft/2020-12/schema" => bootstrap::xxx_to_ir2(resolved),
         _ => todo!(),
     }
 }

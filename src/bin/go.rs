@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bundler::{ir, xxx_to_ir, Bundle, FileMapLoader, Resolved};
+use bundler::{ir, ir2, xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved};
 
 fn main() {
     println!("going");
@@ -155,43 +155,135 @@ fn main() {
 
     // bundler::xxx_to_ir(&xxx);
 
-    let mut work = vec![(context, "#".to_string())];
+    // let mut work = vec![(context, "#".to_string())];
 
-    let mut yyy = BTreeMap::new();
+    // let mut yyy = BTreeMap::new();
 
-    while let Some((context, path)) = work.pop() {
-        println!();
-        println!("got work");
-        // Step 1: resolve the entity. This will give us a raw value
-        let xxx = bundle.resolve(&context, &path).expect("failed to resolve?");
+    // while let Some((context, path)) = work.pop() {
+    //     println!();
+    //     println!("got work");
+    //     // Step 1: resolve the entity. This will give us a raw value
+    //     let xxx = bundle.resolve(&context, &path).expect("failed to resolve?");
 
-        // Step 2: from the raw value, produce a number of IRs, one for each
-        // of the distinct schemas (i.e. aware of all the nesting). We should
-        // minimize the amount of effort that goes into generating each. We
-        // need to save all these IRs somewhere.
-        let irs = xxx_to_ir(&xxx).unwrap();
+    //     // Step 2: from the raw value, produce a number of IRs, one for each
+    //     // of the distinct schemas (i.e. aware of all the nesting). We should
+    //     // minimize the amount of effort that goes into generating each. We
+    //     // need to save all these IRs somewhere.
+    //     let irs = xxx_to_ir(&xxx).unwrap();
 
-        println!("irs? {:#?}", irs);
+    //     println!("irs? {:#?}", irs);
 
-        // Step 3: one IR variant is going to be for a bare $ref. For each of those
-        // dump a new item of work into the queue (current context + reference
-        // string)
+    //     // Step 3: one IR variant is going to be for a bare $ref. For each of
+    //     // those dump a new item of work into the queue (current context +
+    //     // reference string)
 
-        for (rr, ir) in irs {
-            if let ir::SchemaDetails::DollarRef(ref_target) = &ir.details {
-                println!("ref: {}", ref_target);
-                work.push((xxx.context.clone(), ref_target.clone()));
-            }
-            yyy.insert(rr, ir);
-        }
-    }
+    //     for (rr, ir) in irs {
+    //         if let ir::SchemaDetails::DollarRef(ref_target) = &ir.details {
+    //             println!("ref: {}", ref_target);
+    //             work.push((xxx.context.clone(), ref_target.clone()));
+    //         }
+    //         yyy.insert(rr, ir);
+    //     }
+    // }
 
-    println!("all {:#?}", yyy);
+    // println!("all");
+    // for (k, v) in yyy {
+    //     println!("{:#?}", k);
+    //     println!("{}", serde_json::to_string_pretty(&v).unwrap());
+    // }
+
+    // 12/15/2024
+    // I think we want to try this again and be a little more methodical now
+    // that we have a better idea of what we're doing.
+    //
+    // For a while I've been back and forth about whether we want to try to
+    // process large objects or to strip them apart into minimal, stand-alone
+    // schemas. There are some constructions that--for some reason--led me to
+    // believe that the segmented approach wasn't feasible, but now I'm fairly
+    // certain that both could be made to work. An important observation is
+    // that loops may (and do!) exist in these schemas, even the meta schema
+    // for 2020-12.
+    //
+    // Consider the `dependencies` property that contains a anyOf [ #meta,
+    // stringArray ]. If putting the meta schema into a canonical state
+    // requires us to do so for its properties, and resolving the #meta dynamic
+    // dependency requires us to have put **that** in its canonical state, we
+    // can never resolved it!
+    //
+    // However! I think we can--effectively--keep simplifying until no further
+    // simplifications are possible, then do some speculative reference
+    // resolution. In this case if we were to do our best with the meta schema
+    // (i.e. if it had not reached its canonical state), there would still be
+    // enough to determine that the anyOf was effectively an xorOf by seeing
+    // that stringArray was incompatible with type: [object, boolean].
 
     // At the end of this loop, we'll have all the unprocessed--i.e.
     // non-canonical--IRs in some structure indexed by SchemaRef (whatever that
     // ends up being). At this point we can start to canonicalize them. We can
     // start wherever and figure out dependencies (I think?).
+
+    let mut references = vec![(context, "#".to_string())];
+
+    let mut raw = BTreeMap::new();
+
+    while let Some((context, reference)) = references.pop() {
+        println!();
+        println!("got work: {} {}", context.id, reference);
+
+        let resolved = bundle
+            .resolve(&context, &reference)
+            .expect("failed to resolve reference");
+        println!("resolved: {:#?}", resolved);
+
+        let xxx = ir2::SchemaRef::Id(resolved.context.id.clone());
+        if let Some(yyy) = raw.get(&xxx) {
+            println!("context: {:#?}", context);
+            println!("reference: {}", reference);
+            println!("already have {xxx}");
+            println!("{:#?}", yyy);
+            continue;
+        }
+
+        let irs = xxx_to_ir2(&resolved).unwrap();
+
+        for (sr, ir) in irs {
+            println!("sr = {sr}");
+
+            if let ir2::Schema::DollarRef(ref_target) = &ir {
+                println!("$ref => {}", ref_target);
+                references.push((resolved.context.clone(), ref_target.clone()));
+            }
+
+            let xxx = raw.insert(sr, ir);
+            assert!(xxx.is_none());
+        }
+    }
+
+    for (k, v) in &raw {
+        println!("sr {}", k);
+    }
+
+    for (k, v) in &raw {
+        println!("{}: {}", k, serde_json::to_string_pretty(v).unwrap());
+    }
+
+    let mut done = BTreeMap::new();
+    for (k, v) in raw {
+        match v.simplify() {
+            ir2::State::Canonical(schema) => {
+                done.insert(k, schema);
+            }
+            ir2::State::Simplified(schema) => todo!(),
+            ir2::State::Stuck(schema) => todo!(),
+            ir2::State::Todo => (),
+        }
+    }
+    println!();
+    println!("DONE");
+    println!();
+    for (k, v) in &done {
+        println!("{}: {}", k, serde_json::to_string_pretty(v).unwrap());
+    }
 
     panic!("got here?");
 }

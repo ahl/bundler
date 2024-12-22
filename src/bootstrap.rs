@@ -6,7 +6,7 @@ use std::{
 // bootstrapping schema
 use serde::{Deserialize, Serialize};
 
-use crate::{bool_or::ObjectOrBool, ir, Bundle, Document, Error, Resolved};
+use crate::{bool_or::ObjectOrBool, ir, ir2, Bundle, Document, Error, Resolved};
 
 type SchemaOrBool = ObjectOrBool<Schema>;
 
@@ -101,13 +101,13 @@ pub struct Schema {
     // In the real schema this probably needs to be something that can handle
     // integers and floats, but a u64 here is fine for the bootstrap schema.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    minimum: Option<u64>,
+    minimum: Option<i64>,
     #[serde(
         rename = "exclusiveMinimum",
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    exclusive_minimum: Option<u64>,
+    exclusive_minimum: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -149,6 +149,32 @@ impl SimpleType {
             SimpleType::Object => ir::SimpleType::Object,
             SimpleType::String => ir::SimpleType::String,
         }
+    }
+
+    fn all() -> impl Iterator<Item = SimpleType> {
+        SimpleTypeIter(SimpleType::Array)
+    }
+}
+
+struct SimpleTypeIter(SimpleType);
+
+impl Iterator for SimpleTypeIter {
+    type Item = SimpleType;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = match self.0 {
+            SimpleType::Array => SimpleType::Boolean,
+            SimpleType::Boolean => SimpleType::Integer,
+            SimpleType::Integer => SimpleType::Null,
+            SimpleType::Null => SimpleType::Number,
+            SimpleType::Number => SimpleType::Object,
+            SimpleType::Object => SimpleType::String,
+            SimpleType::String => return None,
+        };
+
+        let out = self.0.clone();
+        self.0 = next;
+        Some(out)
     }
 }
 
@@ -396,6 +422,7 @@ impl Schema {
     }
 
     // TODO keeping this around; I'm killing the idea of a generic schema
+    // 12/15/2024, but we'll probably bring it back.
     pub(crate) fn to_generic(bundler: &Bundle, context: crate::Context, value: &serde_json::Value) {
         let schema = Schema::deserialize(value).unwrap();
 
@@ -805,3 +832,242 @@ fn subschema_list<'a>(
 //         }
 //     }
 // }
+
+pub(crate) fn xxx_to_ir2(
+    resolved: &Resolved<'_>,
+) -> anyhow::Result<Vec<(ir2::SchemaRef, ir2::Schema)>> {
+    let bootstrap_schema = SchemaOrBool::deserialize(resolved.value)?;
+
+    let mut input = vec![(resolved.context.id.clone(), &bootstrap_schema)];
+    let mut output = Vec::new();
+
+    while let Some((id, bootstrap_subschema)) = input.pop() {
+        bootstrap_subschema.to_ir2(&mut input, &mut output, &id)?;
+    }
+
+    Ok(output)
+}
+
+impl SchemaOrBool {
+    fn to_ir2<'a>(
+        &'a self,
+        input: &mut Vec<(String, &'a SchemaOrBool)>,
+        output: &mut Vec<(ir2::SchemaRef, ir2::Schema)>,
+        id: &String,
+    ) -> anyhow::Result<()> {
+        match self {
+            ObjectOrBool::Bool(value) => {
+                let ir = if *value {
+                    ir2::Schema::Anything
+                } else {
+                    ir2::Schema::Nothing
+                };
+                output.push((ir2::SchemaRef::Id(id.clone()), ir));
+                Ok(())
+            }
+            ObjectOrBool::Object(schema) => schema.to_ir2(input, output, id),
+        }
+    }
+}
+
+impl Schema {
+    fn to_ir2<'a>(
+        &'a self,
+        input: &mut Vec<(String, &'a SchemaOrBool)>,
+        output: &mut Vec<(ir2::SchemaRef, ir2::Schema)>,
+        id: &String,
+    ) -> anyhow::Result<()> {
+        println!();
+        println!("subschema");
+        println!("{}", serde_json::to_string_pretty(self).unwrap());
+        let Self {
+            schema: _,
+            id: _,
+            dynamic_anchor: _,
+            dynamic_ref,
+            r#ref,
+            vocabulary: _,
+            comment: _,
+            defs: _,
+            title: _,
+            r#type,
+            properties: _,
+            additional_properties: _,
+            property_names: _,
+            items,
+            min_items,
+            unique_items,
+            all_of,
+            any_of,
+            pattern,
+            format,
+            deprecated: _,
+            default: _,
+            r#enum,
+            minimum,
+            exclusive_minimum,
+        } = self;
+
+        // let mut parts = Vec::new();
+
+        let value = match r#type {
+            Some(Type::Array(types)) => {
+                let mut subtypes = Vec::new();
+                for tt in types.iter() {
+                    let (schema_ref, ir) = self.to_ir2_for_type(input, id, tt)?;
+                    output.push((schema_ref.clone(), ir));
+                    subtypes.push(schema_ref);
+                }
+
+                let value_id = ir2::SchemaRef::Partial(id.clone(), "value".to_string());
+                Some((value_id, ir2::Schema::ExclusiveOneOf(subtypes)))
+            }
+            Some(Type::Single(tt)) => Some(self.to_ir2_for_type(input, id, tt)?),
+            None => None,
+        };
+
+        let all_of = Self::to_ir2_subschemas(input, id, "allOf", all_of.as_ref());
+        let any_of = Self::to_ir2_subschemas(input, id, "anyOf", any_of.as_ref());
+
+        let subref = r#ref.clone().map(|subref| {
+            let value_id = ir2::SchemaRef::Partial(id.clone(), "$ref".to_string());
+            let ir = ir2::Schema::DollarRef(subref);
+            (value_id, ir)
+        });
+        let dynref = dynamic_ref.clone().map(|subref| {
+            let value_id = ir2::SchemaRef::Partial(id.clone(), "$dynamicRef".to_string());
+            let ir = ir2::Schema::DynamicRef(subref);
+            (value_id, ir)
+        });
+
+        let everything = [value, all_of, any_of, subref, dynref]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        let output_ref = ir2::SchemaRef::Id(id.clone());
+
+        let ir = if everything.len() == 1 {
+            let (_, ir) = everything.into_iter().next().unwrap();
+            ir
+        } else {
+            let ir = ir2::Schema::AllOf(
+                everything
+                    .iter()
+                    .map(|(schema_ref, _)| schema_ref)
+                    .cloned()
+                    .collect(),
+            );
+            output.extend(everything);
+            ir
+        };
+
+        output.push((output_ref, ir));
+
+        // assert!(r#enum.is_none());
+
+        Ok(())
+    }
+
+    fn to_ir2_subschemas<'a>(
+        input: &mut Vec<(String, &'a ObjectOrBool<Schema>)>,
+        id: &String,
+        label: &str,
+        maybe_subschemas: Option<&'a NonEmpty<Vec<ObjectOrBool<Schema>>>>,
+    ) -> Option<(ir2::SchemaRef, ir2::Schema)> {
+        let all_of = maybe_subschemas.map(|subschemas| {
+            let subschemas = subschemas
+                .iter()
+                .enumerate()
+                .map(|(ii, subschema)| {
+                    let a_id = format!("{}/{}/{}", id, label, ii);
+                    input.push((a_id.clone(), subschema));
+                    ir2::SchemaRef::Id(a_id)
+                })
+                .collect::<Vec<_>>();
+            let all_of_id = ir2::SchemaRef::Partial(id.clone(), label.to_string());
+            (all_of_id, ir2::Schema::AllOf(subschemas))
+        });
+        all_of
+    }
+
+    fn to_ir2_for_type<'a>(
+        &'a self,
+        input: &mut Vec<(String, &'a SchemaOrBool)>,
+        id: &String,
+        tt: &SimpleType,
+    ) -> anyhow::Result<(ir2::SchemaRef, ir2::Schema)> {
+        match tt {
+            SimpleType::Array => {
+                let items = match &self.items {
+                    Some(items_schema) => {
+                        let sub_id = format!("{}/items", id);
+                        input.push((sub_id.clone(), items_schema));
+                        Some(ir2::SchemaRef::Id(sub_id))
+                    }
+                    None => None,
+                };
+                let schema_ref = ir2::SchemaRef::Partial(id.clone(), "array".to_string());
+                let ir = ir2::Schema::Value(ir2::SchemaValue::Array {
+                    items,
+                    min_items: self.min_items,
+                    unique_items: self.unique_items,
+                });
+                Ok((schema_ref, ir))
+            }
+            SimpleType::Boolean => {
+                let schema_ref = ir2::SchemaRef::Partial(id.clone(), "boolean".to_string());
+                let ir = ir2::Schema::Value(ir2::SchemaValue::Boolean);
+                Ok((schema_ref, ir))
+            }
+            SimpleType::Integer => {
+                let schema_ref = ir2::SchemaRef::Partial(id.clone(), "integer".to_string());
+                let ir = ir2::Schema::Value(ir2::SchemaValue::Integer {
+                    minimum: self.minimum,
+                    exclusive_minimum: self.exclusive_minimum,
+                });
+                Ok((schema_ref, ir))
+            }
+            SimpleType::Null => todo!(),
+            SimpleType::Number => {
+                let schema_ref = ir2::SchemaRef::Partial(id.clone(), "number".to_string());
+                let ir = ir2::Schema::Value(ir2::SchemaValue::Number {
+                    minimum: self.minimum,
+                    exclusive_minimum: self.exclusive_minimum,
+                });
+                Ok((schema_ref, ir))
+            }
+            SimpleType::Object => {
+                let mut properties = BTreeMap::new();
+                for (prop_name, prop_schema) in &self.properties {
+                    let prop_id = format!("{}/properties/{}", id, prop_name);
+                    input.push((prop_id.clone(), prop_schema));
+                    properties.insert(prop_name.clone(), ir2::SchemaRef::Id(prop_id.clone()));
+                }
+                let additional_properties = match &self.additional_properties {
+                    Some(ap_schema) => {
+                        let ap_id = format!("{}/additionalProperties", id);
+                        input.push((ap_id.clone(), ap_schema));
+                        Some(ir2::SchemaRef::Id(ap_id))
+                    }
+                    None => None,
+                };
+
+                let ir = ir2::Schema::Value(ir2::SchemaValue::Object {
+                    properties,
+                    additional_properties,
+                });
+                let schema_ref = ir2::SchemaRef::Partial(id.clone(), "object".to_string());
+
+                Ok((schema_ref, ir))
+            }
+            SimpleType::String => {
+                let schema_ref = ir2::SchemaRef::Partial(id.clone(), "string".to_string());
+                let ir = ir2::Schema::Value(ir2::SchemaValue::String {
+                    pattern: self.pattern.clone(),
+                    format: self.format.clone(),
+                });
+                Ok((schema_ref, ir))
+            }
+        }
+    }
+}
