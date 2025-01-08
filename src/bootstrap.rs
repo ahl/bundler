@@ -894,21 +894,19 @@ impl Schema {
             properties: _,
             additional_properties: _,
             property_names: _,
-            items,
-            min_items,
-            unique_items,
+            items: _,
+            min_items: _,
+            unique_items: _,
             all_of,
             any_of,
-            pattern,
-            format,
+            pattern: _,
+            format: _,
             deprecated: _,
             default: _,
             r#enum,
-            minimum,
-            exclusive_minimum,
+            minimum: _,
+            exclusive_minimum: _,
         } = self;
-
-        // let mut parts = Vec::new();
 
         let value = match r#type {
             Some(Type::Array(types)) => {
@@ -940,25 +938,49 @@ impl Schema {
             (value_id, ir)
         });
 
-        let everything = [value, all_of, any_of, subref, dynref]
+        let enumerated_values = r#enum.as_ref().map(|values| {
+            let xxx = values
+                .iter()
+                .enumerate()
+                .map(|(ii, value)| {
+                    let schema_id = format!("{id}/enum/{ii}");
+                    let schema_ref = ir2::SchemaRef::Id(schema_id);
+                    let schema = ir2::Schema::Constant(ir2::Constant(value.clone()));
+                    output.push((schema_ref.clone(), schema));
+                    schema_ref
+                })
+                .collect();
+            let id = ir2::SchemaRef::Id(format!("{id}/enum"));
+            let ir = ir2::Schema::ExclusiveOneOf(xxx);
+            (id, ir)
+        });
+
+        let everything = [value, all_of, any_of, subref, dynref, enumerated_values]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
         let output_ref = ir2::SchemaRef::Id(id.clone());
 
-        let ir = if everything.len() == 1 {
-            let (_, ir) = everything.into_iter().next().unwrap();
-            ir
-        } else {
-            let ir = ir2::Schema::AllOf(
-                everything
-                    .iter()
-                    .map(|(schema_ref, _)| schema_ref)
-                    .cloned()
-                    .collect(),
-            );
-            output.extend(everything);
-            ir
+        let ir = match everything.len() {
+            0 => {
+                // TODO this should probably turn into ir2::Schema::Anything
+                panic!("nada");
+            }
+            1 => {
+                let (_, ir) = everything.into_iter().next().unwrap();
+                ir
+            }
+            _ => {
+                let ir = ir2::Schema::AllOf(
+                    everything
+                        .iter()
+                        .map(|(schema_ref, _)| schema_ref)
+                        .cloned()
+                        .collect(),
+                );
+                output.extend(everything);
+                ir
+            }
         };
 
         output.push((output_ref, ir));
