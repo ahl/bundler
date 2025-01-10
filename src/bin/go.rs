@@ -267,6 +267,7 @@ fn main() {
         println!("{}: {}", k, serde_json::to_string_pretty(v).unwrap());
     }
 
+    /*
     let mut done = BTreeMap::new();
     for (k, v) in raw {
         match v.simplify() {
@@ -283,6 +284,44 @@ fn main() {
     println!();
     for (k, v) in &done {
         println!("{}: {}", k, serde_json::to_string_pretty(v).unwrap());
+    }
+    */
+
+    println!("simplifying");
+    let mut wip = raw;
+    let mut done = BTreeMap::new();
+    let mut pass = 0;
+    loop {
+        pass += 1;
+        println!("new pass: {pass}");
+        let mut next = BTreeMap::new();
+        let mut simplified = false;
+        for (k, v) in wip {
+            println!("{}", k);
+            match v.simplify(&done) {
+                ir2::State::Canonical(schema) => {
+                    println!("simplified");
+                    simplified = true;
+                    done.insert(k, schema);
+                }
+                ir2::State::Simplified(schema) => todo!(),
+                ir2::State::Stuck(schema) => {
+                    println!("stuck {}", serde_json::to_string_pretty(&schema).unwrap());
+                    next.insert(k, schema);
+                }
+                ir2::State::Todo => (),
+            }
+        }
+
+        wip = next;
+
+        for k in done.keys() {
+            println!("ss {}", k);
+        }
+
+        if !simplified {
+            panic!();
+        }
     }
 
     panic!("got here?");

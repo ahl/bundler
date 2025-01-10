@@ -158,6 +158,15 @@ impl Bundle {
         Ok(context)
     }
 
+    pub fn canonicalize_ref(base: &str, reference: &str) -> String {
+        let base_url = url::Url::parse(base).unwrap();
+        let mut ref_url = base_url.join(reference).unwrap();
+        if ref_url.fragment().is_none() {
+            ref_url.set_fragment(Some(""));
+        }
+        ref_url.to_string()
+    }
+
     fn xxx_url(base: &str, reference: &str) -> (Url, String) {
         let base_url = url::Url::parse(base).unwrap();
         let mut ref_url = base_url.join(reference).unwrap();

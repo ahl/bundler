@@ -924,12 +924,15 @@ impl Schema {
             None => None,
         };
 
-        let all_of = Self::to_ir2_subschemas(input, id, "allOf", all_of.as_ref());
-        let any_of = Self::to_ir2_subschemas(input, id, "anyOf", any_of.as_ref());
+        let all_of =
+            Self::to_ir2_subschemas(input, id, "allOf", ir2::Schema::AllOf, all_of.as_ref());
+        let any_of =
+            Self::to_ir2_subschemas(input, id, "anyOf", ir2::Schema::AnyOf, any_of.as_ref());
 
-        let subref = r#ref.clone().map(|subref| {
+        let subref = r#ref.as_ref().map(|subref| {
+            let xxx = Bundle::canonicalize_ref(id, subref);
             let value_id = ir2::SchemaRef::Partial(id.clone(), "$ref".to_string());
-            let ir = ir2::Schema::DollarRef(subref);
+            let ir = ir2::Schema::DollarRef(xxx);
             (value_id, ir)
         });
         let dynref = dynamic_ref.clone().map(|subref| {
@@ -990,13 +993,17 @@ impl Schema {
         Ok(())
     }
 
-    fn to_ir2_subschemas<'a>(
+    fn to_ir2_subschemas<'a, IR>(
         input: &mut Vec<(String, &'a ObjectOrBool<Schema>)>,
         id: &String,
         label: &str,
+        mk_ir: IR,
         maybe_subschemas: Option<&'a NonEmpty<Vec<ObjectOrBool<Schema>>>>,
-    ) -> Option<(ir2::SchemaRef, ir2::Schema)> {
-        let all_of = maybe_subschemas.map(|subschemas| {
+    ) -> Option<(ir2::SchemaRef, ir2::Schema)>
+    where
+        IR: Fn(Vec<ir2::SchemaRef>) -> ir2::Schema,
+    {
+        maybe_subschemas.map(|subschemas| {
             let subschemas = subschemas
                 .iter()
                 .enumerate()
@@ -1006,10 +1013,9 @@ impl Schema {
                     ir2::SchemaRef::Id(a_id)
                 })
                 .collect::<Vec<_>>();
-            let all_of_id = ir2::SchemaRef::Partial(id.clone(), label.to_string());
-            (all_of_id, ir2::Schema::AllOf(subschemas))
-        });
-        all_of
+            let ir_ref = ir2::SchemaRef::Partial(id.clone(), label.to_string());
+            (ir_ref, mk_ir(subschemas))
+        })
     }
 
     fn to_ir2_for_type<'a>(
