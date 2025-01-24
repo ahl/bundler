@@ -69,6 +69,7 @@ pub enum SchemaDetails {
     DynamicRef(String),
     Constant(serde_json::Value),
 }
+
 #[derive(Clone, Debug, Serialize)]
 pub enum Type {
     Single(SimpleType),

@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::canonicalize,
+};
 
 use bundler::{ir, ir2, xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved};
 
@@ -222,6 +225,8 @@ fn main() {
     // ends up being). At this point we can start to canonicalize them. We can
     // start wherever and figure out dependencies (I think?).
 
+    let root_id = ir2::SchemaRef::Id(format!("{}#", context.id));
+
     let mut references = vec![(context, "#".to_string())];
 
     let mut raw = BTreeMap::new();
@@ -287,11 +292,18 @@ fn main() {
     }
     */
 
+    // 1/10/2025
+    // I guess the goal of this pass should be to simplify everything as much
+    // as possible without resolving dynamic references.
+
     println!("simplifying");
     let mut wip = raw;
     let mut done = BTreeMap::new();
     let mut pass = 0;
     loop {
+        if wip.is_empty() {
+            break;
+        }
         pass += 1;
         println!("new pass: {pass}");
         let mut next = BTreeMap::new();
@@ -304,24 +316,54 @@ fn main() {
                     simplified = true;
                     done.insert(k, schema);
                 }
-                ir2::State::Simplified(schema) => todo!(),
                 ir2::State::Stuck(schema) => {
                     println!("stuck {}", serde_json::to_string_pretty(&schema).unwrap());
                     next.insert(k, schema);
                 }
                 ir2::State::Todo => (),
+                ir2::State::Simplified(schema, vec) => {
+                    println!("simplified");
+                    next.insert(k, schema);
+                    for (k, v) in vec {
+                        next.insert(k, v);
+                    }
+                    simplified = true;
+                }
             }
         }
 
         wip = next;
 
-        for k in done.keys() {
+        for (k, v) in &done {
             println!("ss {}", k);
+            if !v.is_canonical(&done) {
+                println!(
+                    "not canonical {}",
+                    serde_json::to_string_pretty(&k).unwrap()
+                );
+            }
         }
 
+        // Somehow we got stuck and couldn't simplify any further.
         if !simplified {
             panic!();
         }
+    }
+
+    println!("\npieces we wanted\n");
+
+    let mut wip = vec![root_id];
+    let mut already = BTreeSet::new();
+    while let Some(schema_ref) = wip.pop() {
+        if !already.insert(schema_ref.clone()) {
+            continue;
+        }
+        println!("{}", schema_ref);
+        let schema = done.get(&schema_ref).unwrap();
+
+        println!("{}", serde_json::to_string_pretty(schema).unwrap());
+
+        wip.extend(schema.children());
     }
 
     panic!("got here?");

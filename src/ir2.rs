@@ -8,6 +8,8 @@ pub enum SchemaRef {
     Id(String),
     /// A subset of a schema that describes a concrete value.
     Partial(String, String),
+    /// A schema that is formed by merging several other schemas
+    Merge(Vec<SchemaRef>),
 }
 
 impl Serialize for SchemaRef {
@@ -27,6 +29,15 @@ impl Display for SchemaRef {
             }
             SchemaRef::Partial(id, partial) => {
                 write!(f, "part: {id}@{partial}")
+            }
+            SchemaRef::Merge(schema_refs) => {
+                writeln!(f, "merge: [")?;
+                for schema_ref in schema_refs {
+                    write!(f, "  ")?;
+                    schema_ref.fmt(f)?;
+                    writeln!(f, ",")?;
+                }
+                writeln!(f, "]")
             }
         }
     }
@@ -71,11 +82,7 @@ pub enum SchemaValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         unique_items: Option<bool>,
     },
-    Object {
-        properties: BTreeMap<String, SchemaRef>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        additional_properties: Option<SchemaRef>,
-    },
+    Object(SchemaValueObject),
     String {
         #[serde(skip_serializing_if = "Option::is_none")]
         pattern: Option<String>,
@@ -96,9 +103,16 @@ pub enum SchemaValue {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct SchemaValueObject {
+    pub properties: BTreeMap<String, SchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_properties: Option<SchemaRef>,
+}
+
 pub enum State {
     Canonical(Schema),
-    Simplified(Schema),
+    Simplified(Schema, Vec<(SchemaRef, Schema)>),
     Stuck(Schema),
     Todo,
 }
@@ -115,7 +129,7 @@ impl Schema {
                     State::Stuck(self)
                 }
             }
-            Schema::DynamicRef(_) => State::Stuck(self),
+            Schema::DynamicRef(_) => State::Canonical(self),
             Schema::Constant(_) => State::Canonical(self),
             Schema::Value(_) => State::Canonical(self),
             Schema::AllOf(ref subchema_refs) => {
@@ -124,8 +138,7 @@ impl Schema {
                     .map(|schema_ref| resolve(done, schema_ref))
                     .collect::<Option<Vec<_>>>()
                 {
-                    let schema = merge_all(subschemas, done);
-                    State::Simplified(schema)
+                    merge_all(subschemas, done)
                 } else {
                     State::Stuck(self)
                 }
@@ -138,16 +151,35 @@ impl Schema {
                     State::Stuck(self)
                 }
             }
-            Schema::AnyOf(_) => State::Todo,
+            // TODO this is busted
+            Schema::AnyOf(ref sub_refs) => {
+                if let Some(subschemas) = sub_refs
+                    .iter()
+                    .map(|sr| resolve(done, sr))
+                    .collect::<Option<Vec<_>>>()
+                {
+                    println!(
+                        "anyOf {}",
+                        serde_json::to_string_pretty(&subschemas).unwrap()
+                    );
+                    State::Stuck(self)
+                } else {
+                    State::Stuck(self)
+                }
+            }
         }
     }
 
-    fn is_canonical(&self, done: &BTreeMap<SchemaRef, Schema>) -> bool {
+    pub fn is_canonical(&self, done: &BTreeMap<SchemaRef, Schema>) -> bool {
         match self {
             Schema::Anything => true,
             Schema::Nothing => true,
-            Schema::DollarRef(_) => false,
+            Schema::DollarRef(ref_str) => {
+                let schema_ref = SchemaRef::Id(ref_str.clone());
+                done.contains_key(&schema_ref)
+            }
             Schema::DynamicRef(_) => false,
+            // TODO is this right? Seems like maybe we need to look at it closer.
             Schema::Value(_) => true,
             Schema::Constant(_) => true,
             Schema::AllOf(_) => false,
@@ -162,6 +194,32 @@ impl Schema {
                     _ => schema.is_canonical(done),
                 }
             }),
+        }
+    }
+
+    pub fn children(&self) -> Vec<SchemaRef> {
+        match self {
+            // Schema::Anything |
+            // Schema::Nothing |
+            // Schema::DollarRef(_) => todo!(),
+            // Schema::DynamicRef(_) => todo!(),
+            // Schema::Constant(constant) => todo!(),
+            // Schema::AllOf(vec) => todo!(),
+            // Schema::AnyOf(vec) => todo!(),
+            Schema::DollarRef(id) => {
+                let schema_ref = SchemaRef::Id(id.clone());
+                vec![schema_ref]
+            }
+            Schema::Value(SchemaValue::Object(SchemaValueObject {
+                properties,
+                additional_properties,
+            })) => properties
+                .values()
+                .chain(additional_properties)
+                .cloned()
+                .collect(),
+            Schema::ExclusiveOneOf(subschemas) => subschemas.to_vec(),
+            _ => Vec::new(),
         }
     }
 }
@@ -180,7 +238,7 @@ fn resolve<'a>(
     }
 }
 
-fn merge_all(subschemas: Vec<(SchemaRef, &Schema)>, done: &BTreeMap<SchemaRef, Schema>) -> Schema {
+fn merge_all(subschemas: Vec<(SchemaRef, &Schema)>, done: &BTreeMap<SchemaRef, Schema>) -> State {
     let len = subschemas.len();
     println!(
         "merge {}",
@@ -233,10 +291,83 @@ fn merge_all(subschemas: Vec<(SchemaRef, &Schema)>, done: &BTreeMap<SchemaRef, S
         );
         println!("?! {} {}", len, all_of_groups.len());
 
-        todo!()
+        // For each branch of the xor, we need to create a new schema i.e. one
+        // that didn't exist in any original document, but rather is a
+        // derivative. These schemas need names, i.e. a way to refer to them.
+
+        let new_work = all_of_groups
+            .into_iter()
+            .map(|(_, yyy)| {
+                let refs = yyy.into_iter().cloned().collect::<Vec<_>>();
+                let schema_ref = SchemaRef::Merge(refs.clone());
+                let ir = Schema::AllOf(refs);
+                (schema_ref, ir)
+            })
+            .collect::<Vec<_>>();
+
+        let schema_refs = new_work
+            .iter()
+            .map(|(schema_ref, _)| schema_ref.clone())
+            .collect::<Vec<_>>();
+        let new_schema = Schema::ExclusiveOneOf(schema_refs);
+
+        State::Simplified(new_schema, new_work)
     } else {
-        todo!()
+        let mut merged_schema = Schema::Anything;
+
+        for (_, schema) in rest {
+            merged_schema = merge_two(&merged_schema, schema);
+        }
+
+        println!(
+            "merged to {}",
+            serde_json::to_string_pretty(&merged_schema).unwrap()
+        );
+
+        State::Simplified(merged_schema, Vec::new())
     }
+}
+
+fn merge_two(a: &Schema, b: &Schema) -> Schema {
+    match (a, b) {
+        (Schema::Anything, other) | (other, Schema::Anything) => other.clone(),
+        (Schema::Nothing, _) | (_, Schema::Nothing) => Schema::Nothing,
+
+        (Schema::Value(SchemaValue::Boolean), Schema::Value(SchemaValue::Boolean)) => {
+            Schema::Value(SchemaValue::Boolean)
+        }
+        (Schema::Value(SchemaValue::Object(aa)), Schema::Value(SchemaValue::Object(bb))) => {
+            merge_two_objects(aa, bb)
+        }
+
+        _ => todo!("merge {}", serde_json::to_string_pretty(&[a, b]).unwrap()),
+    }
+}
+
+fn merge_two_objects(aa: &SchemaValueObject, bb: &SchemaValueObject) -> Schema {
+    let prop_names = aa.properties.keys().chain(bb.properties.keys());
+    let properties = prop_names
+        .map(
+            |prop_name| match (aa.properties.get(prop_name), bb.properties.get(prop_name)) {
+                (None, None) => unreachable!(),
+                (None, Some(prop_ref)) | (Some(prop_ref), None) => {
+                    (prop_name.clone(), prop_ref.clone())
+                }
+                (Some(_), Some(_)) => todo!(),
+            },
+        )
+        .collect();
+
+    let additional_properties = match (&aa.additional_properties, &bb.additional_properties) {
+        (None, None) => None,
+        (None, Some(other)) | (Some(other), None) => Some(other.clone()),
+        (Some(_), Some(_)) => todo!(),
+    };
+
+    Schema::Value(SchemaValue::Object(SchemaValueObject {
+        properties,
+        additional_properties,
+    }))
 }
 
 fn trivially_incompatible(
@@ -259,4 +390,16 @@ fn trivially_incompatible(
         }
         _ => false,
     }
+}
+
+pub struct CanonicalSchema {
+    pub details: CanonicalSchemaDetails,
+}
+
+pub enum CanonicalSchemaDetails {
+    Anything,
+    Nothing,
+    Xor(Vec<SchemaRef>),
+    Value(SchemaValue),
+    Constant(Constant),
 }

@@ -1080,10 +1080,10 @@ impl Schema {
                     None => None,
                 };
 
-                let ir = ir2::Schema::Value(ir2::SchemaValue::Object {
+                let ir = ir2::Schema::Value(ir2::SchemaValue::Object(ir2::SchemaValueObject {
                     properties,
                     additional_properties,
-                });
+                }));
                 let schema_ref = ir2::SchemaRef::Partial(id.clone(), "object".to_string());
 
                 Ok((schema_ref, ir))
