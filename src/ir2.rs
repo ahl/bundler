@@ -10,6 +10,11 @@ pub enum SchemaRef {
     Partial(String, String),
     /// A schema that is formed by merging several other schemas
     Merge(Vec<SchemaRef>),
+
+    YesNo {
+        yes: Box<SchemaRef>,
+        no: Vec<SchemaRef>,
+    },
 }
 
 impl Serialize for SchemaRef {
@@ -33,11 +38,17 @@ impl Display for SchemaRef {
             SchemaRef::Merge(schema_refs) => {
                 writeln!(f, "merge: [")?;
                 for schema_ref in schema_refs {
-                    write!(f, "  ")?;
-                    schema_ref.fmt(f)?;
-                    writeln!(f, ",")?;
+                    writeln!(f, "  {schema_ref},")?;
                 }
                 writeln!(f, "]")
+            }
+            SchemaRef::YesNo { yes, no } => {
+                writeln!(f, "yes/no: {{")?;
+                writeln!(f, "  yes: {yes}")?;
+                for schema_ref in no {
+                    writeln!(f, "  no:  {schema_ref},")?;
+                }
+                writeln!(f, "}}")
             }
         }
     }
@@ -54,6 +65,11 @@ pub enum Schema {
     AllOf(Vec<SchemaRef>),
     AnyOf(Vec<SchemaRef>),
     ExclusiveOneOf(Vec<SchemaRef>),
+
+    YesNo {
+        yes: Box<SchemaRef>,
+        no: Vec<SchemaRef>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -110,6 +126,7 @@ pub struct SchemaValueObject {
     pub additional_properties: Option<SchemaRef>,
 }
 
+#[derive(Debug)]
 pub enum State {
     Canonical(Schema),
     Simplified(Schema, Vec<(SchemaRef, Schema)>),
@@ -129,7 +146,7 @@ impl Schema {
                     State::Stuck(self)
                 }
             }
-            Schema::DynamicRef(_) => State::Canonical(self),
+            Schema::DynamicRef(_) => State::Stuck(self),
             Schema::Constant(_) => State::Canonical(self),
             Schema::Value(_) => State::Canonical(self),
             Schema::AllOf(ref subchema_refs) => {
@@ -158,11 +175,19 @@ impl Schema {
                     .map(|sr| resolve(done, sr))
                     .collect::<Option<Vec<_>>>()
                 {
-                    println!(
-                        "anyOf {}",
-                        serde_json::to_string_pretty(&subschemas).unwrap()
-                    );
+                    expand_any_of(subschemas)
+                } else {
                     State::Stuck(self)
+                }
+            }
+            Schema::YesNo { ref yes, ref no } => {
+                let yes = resolve(done, yes);
+                let no = no
+                    .iter()
+                    .map(|sr| resolve(done, sr))
+                    .collect::<Option<Vec<_>>>();
+                if let (Some(yes), Some(no)) = (yes, no) {
+                    merge_yes_no(yes, no, done)
                 } else {
                     State::Stuck(self)
                 }
@@ -194,6 +219,7 @@ impl Schema {
                     _ => schema.is_canonical(done),
                 }
             }),
+            Schema::YesNo { yes, no } => false,
         }
     }
 
@@ -201,7 +227,6 @@ impl Schema {
         match self {
             // Schema::Anything |
             // Schema::Nothing |
-            // Schema::DollarRef(_) => todo!(),
             // Schema::DynamicRef(_) => todo!(),
             // Schema::Constant(constant) => todo!(),
             // Schema::AllOf(vec) => todo!(),
@@ -210,6 +235,14 @@ impl Schema {
                 let schema_ref = SchemaRef::Id(id.clone());
                 vec![schema_ref]
             }
+            Schema::Anything
+            | Schema::Nothing
+            | Schema::Constant(_)
+            | Schema::Value(SchemaValue::Boolean)
+            | Schema::Value(SchemaValue::String { .. })
+            | Schema::Value(SchemaValue::Integer { .. })
+            | Schema::Value(SchemaValue::Number { .. }) => Vec::new(),
+
             Schema::Value(SchemaValue::Object(SchemaValueObject {
                 properties,
                 additional_properties,
@@ -218,10 +251,138 @@ impl Schema {
                 .chain(additional_properties)
                 .cloned()
                 .collect(),
+            Schema::Value(SchemaValue::Array { items, .. }) => items.iter().cloned().collect(),
+
             Schema::ExclusiveOneOf(subschemas) => subschemas.to_vec(),
-            _ => Vec::new(),
+
+            // TODO
+            Schema::DynamicRef(anchor) => {
+                println!("dyn ref {}", anchor);
+                Vec::new()
+            }
+            Schema::AllOf(vec) => Vec::new(),
+            Schema::AnyOf(vec) => Vec::new(),
+            Schema::YesNo { yes, no } => todo!(),
         }
     }
+}
+
+fn merge_yes_no(
+    yes: (SchemaRef, &Schema),
+    no: Vec<(SchemaRef, &Schema)>,
+    done: &BTreeMap<SchemaRef, Schema>,
+) -> State {
+    println!("yes {:#?}", yes);
+    println!("no {:#?}", no);
+
+    match yes.1 {
+        Schema::Anything => todo!(),
+
+        // Nothing minus anything is still nothing.
+        Schema::Nothing => State::Canonical(Schema::Nothing),
+
+        Schema::DollarRef(_) => todo!(),
+        Schema::DynamicRef(_) => todo!(),
+
+        Schema::Value(schema_value) => todo!(),
+        Schema::Constant(constant) => todo!(),
+        Schema::AllOf(vec) => todo!(),
+        Schema::AnyOf(vec) => todo!(),
+
+        Schema::ExclusiveOneOf(subschemas) => {
+            let new_no = no.iter().map(|(sr, _)| sr.clone()).collect::<Vec<_>>();
+            let mut xxx = Vec::new();
+            let mut yyy = Vec::new();
+
+            for schema_ref in subschemas {
+                let sr = SchemaRef::YesNo {
+                    yes: Box::new(schema_ref.clone()),
+                    no: new_no.clone(),
+                };
+                let ir = Schema::YesNo {
+                    yes: Box::new(schema_ref.clone()),
+                    no: new_no.clone(),
+                };
+                xxx.push(sr.clone());
+                yyy.push((sr, ir));
+            }
+
+            State::Simplified(Schema::ExclusiveOneOf(xxx), yyy)
+        }
+
+        Schema::YesNo { yes, no } => todo!(),
+    }
+}
+
+fn expand_any_of(subschemas: Vec<(SchemaRef, &Schema)>) -> State {
+    println!(
+        "anyOf {}",
+        serde_json::to_string_pretty(&subschemas).unwrap()
+    );
+
+    let len = subschemas.len();
+
+    // We start with 1 and not 0 because "any of" implies that at least one of
+    // the subschemas is valid for the value.
+    let zzz = (1..(1 << len))
+        .map(|bit_map| {
+            let mut yes = Vec::new();
+            let mut no = Vec::new();
+
+            for (ii, (schema_ref, _)) in subschemas.iter().enumerate() {
+                if (1 << ii) & bit_map != 0 {
+                    yes.push(schema_ref.clone());
+                } else {
+                    no.push(schema_ref.clone());
+                }
+            }
+
+            (yes, no)
+
+            // if yes.len() == 1 {
+            //     let yes = yes.into_iter().next().unwrap();
+            // }
+
+            // let schema_ref = SchemaRef::YesNo {
+            //     yes: yes.clone(),
+            //     no: no.clone(),
+            // };
+            // let ir = Schema::YesNo { yes, no };
+            // (schema_ref, ir)
+        })
+        .collect::<Vec<_>>();
+
+    println!("yes/no {:#?}", zzz);
+
+    let mut xxx = Vec::new();
+    let mut yyy = Vec::new();
+
+    for (yes, no) in zzz {
+        let yes = if yes.len() == 1 {
+            yes.into_iter().next().unwrap()
+        } else {
+            let merge_ref = SchemaRef::Merge(yes.clone());
+            let merge = Schema::AllOf(yes.clone());
+
+            yyy.push((merge_ref.clone(), merge));
+            merge_ref
+        };
+
+        let schema_ref = SchemaRef::YesNo {
+            yes: Box::new(yes.clone()),
+            no: no.clone(),
+        };
+        let ir = Schema::YesNo {
+            yes: Box::new(yes),
+            no,
+        };
+        xxx.push(schema_ref.clone());
+        yyy.push((schema_ref, ir));
+    }
+
+    let new_schema = Schema::ExclusiveOneOf(xxx);
+
+    State::Simplified(new_schema, yyy)
 }
 
 fn resolve<'a>(
@@ -249,6 +410,10 @@ fn merge_all(subschemas: Vec<(SchemaRef, &Schema)>, done: &BTreeMap<SchemaRef, S
         assert!(schema.is_canonical(done));
     }
 
+    if len == 1 {
+        return State::Canonical(subschemas.into_iter().next().unwrap().1.clone());
+    }
+
     let mut xors = Vec::new();
     let mut rest = Vec::new();
     for (schema_ref, schema) in subschemas {
@@ -270,7 +435,7 @@ fn merge_all(subschemas: Vec<(SchemaRef, &Schema)>, done: &BTreeMap<SchemaRef, S
                     xor_schema
                         .iter()
                         .filter(|&schema_ref| {
-                            !trivially_incompatible(done, representative, schema_ref)
+                            !trivially_incompatible_ref(done, representative, schema_ref)
                         })
                         .map(move |schema_ref| {
                             let mut new_group = group.clone();
@@ -370,7 +535,7 @@ fn merge_two_objects(aa: &SchemaValueObject, bb: &SchemaValueObject) -> Schema {
     }))
 }
 
-fn trivially_incompatible(
+fn trivially_incompatible_ref(
     done: &BTreeMap<SchemaRef, Schema>,
     a: &SchemaRef,
     b: &SchemaRef,
@@ -378,6 +543,10 @@ fn trivially_incompatible(
     let (_, aaa) = resolve(done, a).unwrap();
     let (_, bbb) = resolve(done, b).unwrap();
 
+    trivially_incompatible(done, aaa, bbb)
+}
+
+fn trivially_incompatible(_done: &BTreeMap<SchemaRef, Schema>, aaa: &Schema, bbb: &Schema) -> bool {
     match (aaa, bbb) {
         (Schema::Value(aaaa), Schema::Value(bbbb)) =>
         {
@@ -385,9 +554,11 @@ fn trivially_incompatible(
             !match (aaaa, bbbb) {
                 (SchemaValue::Boolean, SchemaValue::Boolean) => true,
                 (SchemaValue::Object { .. }, SchemaValue::Object { .. }) => true,
+
                 _ => false,
             }
         }
+
         _ => false,
     }
 }

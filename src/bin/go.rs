@@ -346,7 +346,8 @@ fn main() {
 
         // Somehow we got stuck and couldn't simplify any further.
         if !simplified {
-            panic!();
+            // panic!();
+            break;
         }
     }
 
@@ -355,6 +356,7 @@ fn main() {
     let mut wip = vec![root_id];
     let mut already = BTreeSet::new();
     while let Some(schema_ref) = wip.pop() {
+        println!("sr = {schema_ref}");
         if !already.insert(schema_ref.clone()) {
             continue;
         }
@@ -363,7 +365,9 @@ fn main() {
 
         println!("{}", serde_json::to_string_pretty(schema).unwrap());
 
-        wip.extend(schema.children());
+        let children = schema.children();
+        println!("children: {:#?}", children);
+        wip.extend(children);
     }
 
     panic!("got here?");
