@@ -25,6 +25,7 @@ mod bootstrap;
 pub mod ir;
 pub mod ir2;
 mod loader;
+pub mod typify_draft;
 
 pub use loader::*;
 
@@ -81,6 +82,14 @@ pub struct Bundle {
     loader: Box<dyn Loader>,
 }
 
+impl std::fmt::Debug for Bundle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Bundle")
+            .field("documents", &self.documents)
+            .finish()
+    }
+}
+
 impl Default for Bundle {
     fn default() -> Self {
         Self {
@@ -98,6 +107,7 @@ pub trait Loader {
     fn load(&self, url: Url) -> Result<String, LoadError>;
 }
 
+#[derive(Clone, Debug)]
 pub struct Document {
     pub id: String,
     pub content: serde_json::Value,

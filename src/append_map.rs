@@ -4,6 +4,7 @@ use std::{
     collections::{btree_map::Entry, BTreeMap},
 };
 
+#[derive(Debug)]
 pub struct AppendMap<K, V> {
     inner: UnsafeCell<BTreeMap<K, Box<V>>>,
 }
@@ -12,6 +13,19 @@ impl<K, V> Default for AppendMap<K, V> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
+        }
+    }
+}
+
+impl<K, V> Clone for AppendMap<K, V>
+where
+    K: Clone,
+    V: Clone,
+{
+    fn clone(&self) -> Self {
+        let map = unsafe { &*self.inner.get() };
+        Self {
+            inner: UnsafeCell::new(map.clone()),
         }
     }
 }
