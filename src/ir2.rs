@@ -77,7 +77,7 @@ pub struct Constant(pub serde_json::Value);
 
 impl PartialOrd for Constant {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 

@@ -25,9 +25,12 @@ mod bootstrap;
 pub mod ir;
 pub mod ir2;
 mod loader;
+pub mod schemalet;
 pub mod typify_draft;
 
 pub use loader::*;
+
+pub use schemalet::to_schemalets;
 
 /// TODO writing the description of this in the hope that it will help me find
 /// the edges of what it is.

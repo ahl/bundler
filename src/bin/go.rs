@@ -3,7 +3,9 @@ use std::{
     fs::canonicalize,
 };
 
-use bundler::{ir, ir2, xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved};
+use bundler::{
+    ir, ir2, schemalet::to_schemalets, xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
+};
 
 fn main() {
     println!("going");
@@ -225,6 +227,12 @@ fn main() {
     // ends up being). At this point we can start to canonicalize them. We can
     // start wherever and figure out dependencies (I think?).
 
+    // ir2(bundle, context);
+
+    schemalet(bundle, context);
+}
+
+fn ir2(bundle: Bundle, context: bundler::Context) {
     let root_id = ir2::SchemaRef::Id(format!("{}#", context.id));
 
     let mut references = vec![(context, "#".to_string())];
@@ -398,3 +406,52 @@ fn main() {
 // we hit something that wasn't resolved, then back out, scheduled the
 // dependent work, and pick it up again. It seems sort of inefficient... but
 // maybe it's not so bad.
+//
+// 5/9/2025
+// I made this decision effectively a while ago, but we've picked
+// self-contained. In the new iteration I'm trying, I'm calling these
+// "Schemalets".
+
+// 5/9/2025
+// Starting yet another attempt that I'm hoping can be cleaner and more
+// complete. We're going to try to blaze it all the way through to a canonical
+// representation and take the shortest route with dynamic references.
+fn schemalet(bundle: Bundle, context: bundler::Context) {
+    let root_id = ir2::SchemaRef::Id(format!("{}#", context.id));
+
+    let mut references = vec![(context, "#".to_string())];
+
+    let mut raw = BTreeMap::new();
+
+    while let Some((context, reference)) = references.pop() {
+        println!();
+        println!("got work: {} {}", context.id, reference);
+
+        let resolved = bundle
+            .resolve(&context, &reference)
+            .expect("failed to resolve reference");
+
+        if raw.contains_key(&bundler::schemalet::SchemaRef::Id(
+            resolved.context.id.clone(),
+        )) {
+            continue;
+        }
+
+        let schemalets = to_schemalets(&resolved).unwrap();
+
+        for (sref, schemalet) in schemalets {
+            println!("sref = {:?}", sref);
+            println!("{}", serde_json::to_string_pretty(&schemalet).unwrap());
+
+            if let bundler::schemalet::SchemaletDetails::RawRef(target) = &schemalet.details {
+                println!("$ref => {target}");
+                references.push((resolved.context.clone(), target.clone()));
+            }
+
+            let old = raw.insert(sref, schemalet);
+            assert!(old.is_none());
+        }
+    }
+
+    todo!()
+}

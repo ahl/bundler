@@ -6,7 +6,7 @@ use std::{
 // bootstrapping schema
 use serde::{Deserialize, Serialize};
 
-use crate::{bool_or::ObjectOrBool, ir, ir2, Bundle, Document, Error, Resolved};
+use crate::{bool_or::ObjectOrBool, ir, ir2, schemalet, Bundle, Document, Error, Resolved};
 
 type SchemaOrBool = ObjectOrBool<Schema>;
 
@@ -1097,5 +1097,276 @@ impl Schema {
                 Ok((schema_ref, ir))
             }
         }
+    }
+}
+
+struct WorkQueue<'a, Ref, Out> {
+    input: Vec<(String, &'a ObjectOrBool<Schema>)>,
+    output: Vec<(Ref, Out)>,
+}
+
+impl<'a, Ref, Out> WorkQueue<'a, Ref, Out> {
+    fn new(id: String, initial_schema: &'a ObjectOrBool<Schema>) -> Self {
+        Self {
+            input: vec![(id, initial_schema)],
+            output: Vec::new(),
+        }
+    }
+
+    fn pop(&mut self) -> Option<(String, &'a ObjectOrBool<Schema>)> {
+        self.input.pop()
+    }
+
+    fn push(&mut self, id: String, schema: &'a ObjectOrBool<Schema>) {
+        self.input.push((id, schema));
+    }
+
+    fn done(&mut self, sref: Ref, sout: Out) {
+        self.output.push((sref, sout));
+    }
+}
+
+pub(crate) fn to_schemalets(
+    resolved: &Resolved<'_>,
+) -> anyhow::Result<Vec<(schemalet::SchemaRef, schemalet::Schemalet)>> {
+    let bootstrap_schema = SchemaOrBool::deserialize(resolved.value)?;
+
+    let mut work = WorkQueue::new(resolved.context.id.clone(), &bootstrap_schema);
+
+    while let Some((id, bootstrap_subschema)) = work.pop() {
+        bootstrap_subschema.to_schemalets(&mut work, id)?;
+    }
+
+    Ok(work.output)
+}
+
+impl SchemaOrBool {
+    fn to_schemalets<'a>(
+        &'a self,
+        work: &mut WorkQueue<'a, schemalet::SchemaRef, schemalet::Schemalet>,
+        id: String,
+    ) -> anyhow::Result<()> {
+        let id = schemalet::SchemaRef::Id(id);
+        match self {
+            ObjectOrBool::Bool(value) => {
+                let schemalet = if *value {
+                    schemalet::Schemalet::from_details(schemalet::SchemaletDetails::Anything)
+                } else {
+                    schemalet::Schemalet::from_details(schemalet::SchemaletDetails::Nothing)
+                };
+                work.done(id, schemalet);
+                Ok(())
+            }
+            ObjectOrBool::Object(schema) => schema.to_schemalets(work, id),
+        }
+    }
+}
+
+impl Schema {
+    fn to_schemalets<'a>(
+        &'a self,
+        work: &mut WorkQueue<'a, schemalet::SchemaRef, schemalet::Schemalet>,
+        id: schemalet::SchemaRef,
+    ) -> anyhow::Result<()> {
+        let Self {
+            schema: _,
+            id: _,
+            dynamic_anchor: _,
+            dynamic_ref,
+            r#ref,
+            vocabulary: _,
+            comment: _,
+            defs: _,
+            title,
+            r#type,
+            properties: _,
+            additional_properties: _,
+            property_names: _,
+            items: _,
+            min_items: _,
+            unique_items: _,
+            all_of,
+            any_of,
+            pattern: _,
+            format: _,
+            deprecated: _,
+            default: _,
+            r#enum,
+            minimum: _,
+            exclusive_minimum: _,
+        } = self;
+
+        let concrete_value = match r#type {
+            Some(Type::Array(types)) => {
+                let subtypes = types
+                    .iter()
+                    .map(|ty| {
+                        let (sref, sout) = self.to_schemalet_for_type(work, &id, ty)?;
+
+                        work.done(sref.clone(), schemalet::Schemalet::from_details(sout));
+                        Ok(sref)
+                    })
+                    .collect::<anyhow::Result<_>>()?;
+                let value_id = id.partial("value");
+                let value = schemalet::SchemaletDetails::ExclusiveOneOf(subtypes);
+                Some((value_id, value))
+            }
+
+            Some(Type::Single(ty)) => Some(self.to_schemalet_for_type(work, &id, ty)?),
+
+            None => None,
+        };
+
+        let all_of = Self::to_schemalet_subschemas(
+            work,
+            &id,
+            "allOf",
+            schemalet::SchemaletDetails::AllOf,
+            all_of.as_ref(),
+        );
+        let any_of = Self::to_schemalet_subschemas(
+            work,
+            &id,
+            "anyOf",
+            schemalet::SchemaletDetails::AnyOf,
+            any_of.as_ref(),
+        );
+
+        let subref = r#ref.as_ref().map(|raw_ref| {
+            let value_id = id.partial("$ref");
+            let value = schemalet::SchemaletDetails::RawRef(raw_ref.clone());
+            (value_id, value)
+        });
+        let dynref = dynamic_ref.as_ref().map(|raw_dyn_ref| {
+            let value_id = id.partial("$dynamicRef");
+            let value = schemalet::SchemaletDetails::RawDynamicRef(raw_dyn_ref.clone());
+            (value_id, value)
+        });
+
+        let enum_values = r#enum.as_ref().map(|values| {
+            let enum_id = id.append("enum");
+            let xxx = values
+                .iter()
+                .enumerate()
+                .map(|(ii, value)| {
+                    let value_id = enum_id.append(&ii.to_string());
+                    let value = schemalet::Schemalet::from_details(
+                        schemalet::SchemaletDetails::Constant(value.clone()),
+                    );
+                    work.done(value_id.clone(), value);
+                    todo!();
+                })
+                .collect();
+            let value = schemalet::SchemaletDetails::ExclusiveOneOf(xxx);
+            (enum_id, value)
+        });
+
+        let everything = [concrete_value, all_of, any_of, subref, dynref, enum_values]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let metadata = schemalet::SchemaletMetadata {
+            title: title.clone(),
+            ..Default::default()
+        };
+
+        let details = match everything.len() {
+            0 => schemalet::SchemaletDetails::Anything,
+
+            1 => everything.into_iter().next().unwrap().1,
+
+            _ => {
+                let subs = everything
+                    .iter()
+                    .map(|(schema_ref, _)| schema_ref)
+                    .cloned()
+                    .collect();
+                for (sref, details) in everything {
+                    work.done(sref, schemalet::Schemalet::from_details(details));
+                }
+                schemalet::SchemaletDetails::AllOf(subs)
+            }
+        };
+        let value = schemalet::Schemalet::new(details, metadata);
+
+        work.done(id, value);
+        Ok(())
+    }
+
+    fn to_schemalet_for_type<'a>(
+        &'a self,
+        work: &mut WorkQueue<'a, schemalet::SchemaRef, schemalet::Schemalet>,
+        id: &schemalet::SchemaRef,
+        ty: &SimpleType,
+    ) -> anyhow::Result<(schemalet::SchemaRef, schemalet::SchemaletDetails)> {
+        match ty {
+            SimpleType::Array => todo!(),
+            SimpleType::Boolean => {
+                let schema_ref = id.partial("boolean");
+                let details =
+                    schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Boolean);
+                Ok((schema_ref, details))
+            }
+            SimpleType::Integer => todo!(),
+            SimpleType::Null => todo!(),
+            SimpleType::Number => todo!(),
+            SimpleType::Object => {
+                let props_id = id.append("properties");
+                let properties = self
+                    .properties
+                    .iter()
+                    .map(|(prop_name, prop_schema)| {
+                        let prop_id = props_id.append(prop_name);
+                        work.push(prop_id.id(), prop_schema);
+                        (prop_name.clone(), prop_id)
+                    })
+                    .collect::<BTreeMap<_, _>>();
+
+                let additional_properties = self.additional_properties.as_ref().map(|ap_schema| {
+                    let ap_id = id.append("additionalProperties");
+                    work.push(ap_id.id(), ap_schema);
+                    ap_id
+                });
+
+                let details = schemalet::SchemaletDetails::Value(
+                    schemalet::SchemaletValue::SchemaValueObject(schemalet::SchemaletValueObject {
+                        properties,
+                        additional_properties,
+                    }),
+                );
+                let sref = id.partial("object");
+                Ok((sref, details))
+            }
+            SimpleType::String => {
+                todo!()
+            }
+        }
+    }
+
+    fn to_schemalet_subschemas<'a, Variant>(
+        work: &mut WorkQueue<'a, schemalet::SchemaRef, schemalet::Schemalet>,
+        id: &schemalet::SchemaRef,
+        label: &str,
+        variant: Variant,
+        maybe_subschemas: Option<&'a NonEmpty<Vec<ObjectOrBool<Schema>>>>,
+    ) -> Option<(schemalet::SchemaRef, schemalet::SchemaletDetails)>
+    where
+        Variant: Fn(Vec<schemalet::SchemaRef>) -> schemalet::SchemaletDetails,
+    {
+        maybe_subschemas.map(|subschemas| {
+            let label_id = id.append(label);
+            let subschemas = subschemas
+                .iter()
+                .enumerate()
+                .map(|(ii, subschema)| {
+                    let sref = label_id.append(&ii.to_string());
+                    work.push(sref.id(), subschema);
+                    sref
+                })
+                .collect();
+            let sref = id.partial(label);
+            (sref, variant(subschemas))
+        })
     }
 }
