@@ -411,6 +411,14 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // I made this decision effectively a while ago, but we've picked
 // self-contained. In the new iteration I'm trying, I'm calling these
 // "Schemalets".
+//
+// 5/9/2025
+// What are the options for dealing with dynamic references? When we walk the
+// graph the first time, the context comes along for the ride which might be
+// useful for identifying the appropriate dynamic reference target.
+// Alternatively, we could record dynamic inputs and outputs, stitching it all
+// together later. While I was hoping to have discrete passes with distinct
+// functionality, perhaps dealing with dyn refs on the first pass is simplest.
 
 // 5/9/2025
 // Starting yet another attempt that I'm hoping can be cleaner and more
@@ -441,16 +449,29 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
 
         for (sref, schemalet) in schemalets {
             println!("sref = {:?}", sref);
-            println!("{}", serde_json::to_string_pretty(&schemalet).unwrap());
+            // println!("{}", serde_json::to_string_pretty(&schemalet).unwrap());
 
             if let bundler::schemalet::SchemaletDetails::RawRef(target) = &schemalet.details {
                 println!("$ref => {target}");
                 references.push((resolved.context.clone(), target.clone()));
             }
 
+            if let bundler::schemalet::SchemaletDetails::RawDynamicRef(target) = &schemalet.details
+            {
+                println!("$dynReference => {target} {}", context.dyn_resolve(target));
+            }
+
             let old = raw.insert(sref, schemalet);
             assert!(old.is_none());
         }
+    }
+
+    for (k, _) in &raw {
+        println!("sr {:?}", k);
+    }
+
+    for (k, v) in &raw {
+        println!("{:?}: {}", k, serde_json::to_string_pretty(v).unwrap());
     }
 
     todo!()

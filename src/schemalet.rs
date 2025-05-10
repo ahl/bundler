@@ -31,7 +31,7 @@ impl SchemaRef {
 /// subordinate schemas rather than including them inline.
 #[derive(Serialize)]
 pub struct Schemalet {
-    #[serde(skip_serializing_if = "SchemaletMetadata::is_default")]
+    #[serde(flatten)]
     pub metadata: SchemaletMetadata,
     pub details: SchemaletDetails,
 }
@@ -62,7 +62,33 @@ pub enum SchemaletDetails {
 #[derive(Serialize)]
 pub enum SchemaletValue {
     Boolean,
-    SchemaValueObject(SchemaletValueObject),
+    Array {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        items: Option<SchemaRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        min_items: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        unique_items: Option<bool>,
+    },
+    Object(SchemaletValueObject),
+    String {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pattern: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<String>,
+    },
+    Integer {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        minimum: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclusive_minimum: Option<i64>,
+    },
+    Number {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        minimum: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclusive_minimum: Option<i64>,
+    },
 }
 
 #[derive(Serialize)]

@@ -282,7 +282,6 @@ impl Bundle {
             todo!("not sure of the schema type");
         };
 
-        // TODO this is wrong; I only want to make this once I have the schema
         let mut document = Document {
             id: id.to_string(),
             content,
@@ -307,6 +306,14 @@ pub struct Context {
     // TODO this is the full url i.e. base + # + path
     pub id: String,
     dyn_anchors: BTreeMap<String, String>,
+}
+
+impl Context {
+    pub fn dyn_resolve(&self, target: &'_ str) -> &str {
+        println!("dyn resolve id {} {}", self.id, target);
+        println!("{:#?}", self.dyn_anchors);
+        self.dyn_anchors.get(target).unwrap().as_str()
+    }
 }
 
 pub fn to_generic(bundle: &Bundle, context: Context, value: &serde_json::Value, schema: &str) {

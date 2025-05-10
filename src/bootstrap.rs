@@ -369,10 +369,10 @@ impl Schema {
     }
 
     pub(crate) fn populate_document(document: &mut Document) {
-        let schema: Schema = serde_json::from_value(document.content.clone())
+        let schema = Schema::deserialize(&document.content)
             .unwrap_or_else(|e| panic!("failed to parse '{}': {}", document.id, e));
 
-        println!("{:?}", schema.id);
+        println!("populate_document {:?}", schema.id);
 
         for (path, ss) in schema.iter_schema() {
             let Self {
@@ -407,7 +407,7 @@ impl Schema {
                 subschema
                     .dynamic_anchor
                     .as_ref()
-                    .map(|dd| (dd.clone(), path))
+                    .map(|dd| (dd.clone(), format!("{id}{path}")))
             })
             .collect();
 
@@ -1238,8 +1238,10 @@ impl Schema {
             (value_id, value)
         });
         let dynref = dynamic_ref.as_ref().map(|raw_dyn_ref| {
+            assert!(raw_dyn_ref.starts_with("#"));
+            let raw_dyn_fragment = &raw_dyn_ref[1..];
             let value_id = id.partial("$dynamicRef");
-            let value = schemalet::SchemaletDetails::RawDynamicRef(raw_dyn_ref.clone());
+            let value = schemalet::SchemaletDetails::RawDynamicRef(raw_dyn_fragment.to_string());
             (value_id, value)
         });
 
@@ -1254,7 +1256,7 @@ impl Schema {
                         schemalet::SchemaletDetails::Constant(value.clone()),
                     );
                     work.done(value_id.clone(), value);
-                    todo!();
+                    value_id
                 })
                 .collect();
             let value = schemalet::SchemaletDetails::ExclusiveOneOf(xxx);
@@ -1301,16 +1303,46 @@ impl Schema {
         ty: &SimpleType,
     ) -> anyhow::Result<(schemalet::SchemaRef, schemalet::SchemaletDetails)> {
         match ty {
-            SimpleType::Array => todo!(),
+            SimpleType::Array => {
+                let items = match &self.items {
+                    Some(items_schema) => {
+                        let sub_id = id.append("items");
+                        work.push(sub_id.id(), items_schema);
+                        Some(sub_id)
+                    }
+                    None => None,
+                };
+                let schema_ref = id.partial("array");
+                let ir = schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Array {
+                    items,
+                    min_items: self.min_items,
+                    unique_items: self.unique_items,
+                });
+                Ok((schema_ref, ir))
+            }
             SimpleType::Boolean => {
                 let schema_ref = id.partial("boolean");
                 let details =
                     schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Boolean);
                 Ok((schema_ref, details))
             }
-            SimpleType::Integer => todo!(),
+            SimpleType::Integer => {
+                let schema_ref = id.partial("integer");
+                let ir = schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Integer {
+                    minimum: self.minimum,
+                    exclusive_minimum: self.exclusive_minimum,
+                });
+                Ok((schema_ref, ir))
+            }
             SimpleType::Null => todo!(),
-            SimpleType::Number => todo!(),
+            SimpleType::Number => {
+                let schema_ref = id.partial("number");
+                let ir = schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Number {
+                    minimum: self.minimum,
+                    exclusive_minimum: self.exclusive_minimum,
+                });
+                Ok((schema_ref, ir))
+            }
             SimpleType::Object => {
                 let props_id = id.append("properties");
                 let properties = self
@@ -1330,7 +1362,7 @@ impl Schema {
                 });
 
                 let details = schemalet::SchemaletDetails::Value(
-                    schemalet::SchemaletValue::SchemaValueObject(schemalet::SchemaletValueObject {
+                    schemalet::SchemaletValue::Object(schemalet::SchemaletValueObject {
                         properties,
                         additional_properties,
                     }),
@@ -1339,7 +1371,12 @@ impl Schema {
                 Ok((sref, details))
             }
             SimpleType::String => {
-                todo!()
+                let schema_ref = id.partial("string");
+                let ir = schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::String {
+                    pattern: self.pattern.clone(),
+                    format: self.format.clone(),
+                });
+                Ok((schema_ref, ir))
             }
         }
     }
