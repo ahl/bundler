@@ -71,17 +71,26 @@ pub struct SchemaletMetadata {
 
 #[derive(Serialize)]
 pub enum SchemaletDetails {
+    // Native
     Anything,
     Nothing,
-    ExclusiveOneOf(Vec<SchemaRef>),
-    AllOf(Vec<SchemaRef>),
+
+    // Subschemas
+    OneOf(Vec<SchemaRef>),
     AnyOf(Vec<SchemaRef>),
+    AllOf(Vec<SchemaRef>),
+    Not(SchemaRef),
+    IfThen(SchemaRef, SchemaRef),
+    IfThenElse(SchemaRef, SchemaRef, SchemaRef),
     RawRef(String),
     RawDynamicRef(String),
     Constant(serde_json::Value),
     Value(SchemaletValue),
     ResolvedRef(String),
     ResolvedDynamicRef(String),
+
+    // Synthetic
+    ExclusiveOneOf(Vec<SchemaRef>),
 }
 
 #[derive(Serialize)]
@@ -132,18 +141,6 @@ impl Schemalet {
             metadata: Default::default(),
             details,
         }
-    }
-}
-
-impl SchemaletMetadata {
-    fn is_default(&self) -> bool {
-        let Self {
-            title,
-            description,
-            examples,
-        } = self;
-
-        title.is_none() && description.is_none() && examples.is_empty()
     }
 }
 

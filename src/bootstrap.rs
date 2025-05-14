@@ -412,7 +412,7 @@ impl Schema {
             .collect();
 
         let document = Document {
-            id,
+            id: crate::DocumentId::from_str(&id),
             content: value,
             schema,
             anchors: Default::default(),
@@ -447,7 +447,7 @@ impl Schema {
         let bootstrap_schema = SchemaOrBool::deserialize(resolved.value)?;
 
         let mut work = vec![(
-            ir::SchemaRef::Where(resolved.context.id.clone()),
+            ir::SchemaRef::Where(resolved.context.location.to_string()),
             &bootstrap_schema,
         )];
         let mut out = Vec::new();
@@ -506,7 +506,8 @@ impl Schema {
                         anyhow::Result::Ok(key)
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "type array");
+                let key =
+                    ir::SchemaRef::Partial(resolved.context.location.to_string(), "type array");
                 parts.push((
                     key,
                     ir::Schema {
@@ -523,7 +524,7 @@ impl Schema {
         }
 
         if let Some(ref_target) = &schema.r#ref {
-            let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "$ref");
+            let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "$ref");
             parts.push((
                 key,
                 ir::Schema {
@@ -534,7 +535,7 @@ impl Schema {
         }
 
         if let Some(dyn_tag) = &schema.dynamic_ref {
-            let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "$dynamicRef");
+            let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "$dynamicRef");
             parts.push((
                 key,
                 ir::Schema {
@@ -545,7 +546,7 @@ impl Schema {
         }
 
         if let Some(all_of) = &schema.all_of {
-            let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "allOf");
+            let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "allOf");
             let list = subschema_list("allOf", all_of, work, resolved);
             parts.push((
                 key,
@@ -557,7 +558,7 @@ impl Schema {
         }
 
         if let Some(any_of) = &schema.any_of {
-            let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "allOf");
+            let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "allOf");
             let list = subschema_list("anyOf", any_of, work, resolved);
             parts.push((
                 key,
@@ -573,8 +574,10 @@ impl Schema {
                 .iter()
                 .enumerate()
                 .map(|(index, value)| {
-                    let key =
-                        ir::SchemaRef::Where(format!("{}/enum/{}", resolved.context.id, index));
+                    let key = ir::SchemaRef::Where(format!(
+                        "{}/enum/{}",
+                        resolved.context.location, index
+                    ));
                     out.push((
                         key.clone(),
                         ir::Schema {
@@ -586,7 +589,7 @@ impl Schema {
                     key
                 })
                 .collect();
-            let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "enum");
+            let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "enum");
             parts.push((
                 key,
                 ir::Schema {
@@ -598,7 +601,7 @@ impl Schema {
 
         println!("{:#?}", parts);
 
-        let key = ir::SchemaRef::Where(resolved.context.id.clone());
+        let key = ir::SchemaRef::Where(resolved.context.location.to_string());
 
         assert_ne!(parts.len(), 0);
         let ir = if parts.len() == 1 {
@@ -633,11 +636,11 @@ impl Schema {
         match t {
             SimpleType::Array => {
                 let items = schema.items.as_ref().map(|it_schema| {
-                    let key = ir::SchemaRef::Where(format!("{}#/items", resolved.context.id));
+                    let key = ir::SchemaRef::Where(format!("{}#/items", resolved.context.location));
                     work.push((key.clone(), it_schema));
                     key
                 });
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "array");
+                let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "array");
                 Ok((
                     key,
                     ir::Schema {
@@ -653,7 +656,7 @@ impl Schema {
                 ))
             }
             SimpleType::Boolean => {
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "boolean");
+                let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "boolean");
                 Ok((
                     key,
                     ir::Schema {
@@ -663,7 +666,7 @@ impl Schema {
                 ))
             }
             SimpleType::Integer => {
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "integer");
+                let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "integer");
                 Ok((
                     key,
                     ir::Schema {
@@ -674,7 +677,7 @@ impl Schema {
             }
             SimpleType::Null => todo!(),
             SimpleType::Number => {
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "number");
+                let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "number");
                 Ok((
                     key,
                     ir::Schema {
@@ -690,7 +693,7 @@ impl Schema {
                     .map(|(prop_name, prop_schema)| {
                         let key = ir::SchemaRef::Where(format!(
                             "{}#/properties/{}",
-                            resolved.context.id, prop_name
+                            resolved.context.location, prop_name
                         ));
                         work.push((key.clone(), prop_schema));
                         (prop_name.clone(), key)
@@ -700,14 +703,14 @@ impl Schema {
                     schema.additional_properties.as_ref().map(|ap_schema| {
                         let key = ir::SchemaRef::Where(format!(
                             "{}#/additionalProperties",
-                            resolved.context.id
+                            resolved.context.location
                         ));
                         work.push((key.clone(), ap_schema));
                         key
                     });
                 // Required not required for bootstrapping.
                 let required = Default::default();
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "object");
+                let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "object");
                 Ok((
                     key,
                     ir::Schema {
@@ -723,7 +726,7 @@ impl Schema {
                 ))
             }
             SimpleType::String => {
-                let key = ir::SchemaRef::Partial(resolved.context.id.clone(), "string");
+                let key = ir::SchemaRef::Partial(resolved.context.location.to_string(), "string");
                 Ok((
                     key,
                     ir::Schema {
@@ -816,7 +819,8 @@ fn subschema_list<'a>(
         .iter()
         .enumerate()
         .map(|(index, ao_schema)| {
-            let key = ir::SchemaRef::Where(format!("{}#/{}/{}", resolved.context.id, path, index));
+            let key =
+                ir::SchemaRef::Where(format!("{}#/{}/{}", resolved.context.location, path, index));
             work.push((key.clone(), ao_schema));
             key
         })
@@ -838,7 +842,7 @@ pub(crate) fn xxx_to_ir2(
 ) -> anyhow::Result<Vec<(ir2::SchemaRef, ir2::Schema)>> {
     let bootstrap_schema = SchemaOrBool::deserialize(resolved.value)?;
 
-    let mut input = vec![(resolved.context.id.clone(), &bootstrap_schema)];
+    let mut input = vec![(resolved.context.location.to_string(), &bootstrap_schema)];
     let mut output = Vec::new();
 
     while let Some((id, bootstrap_subschema)) = input.pop() {
@@ -1131,7 +1135,7 @@ pub(crate) fn to_schemalets(
 ) -> anyhow::Result<Vec<(schemalet::SchemaRef, schemalet::Schemalet)>> {
     let bootstrap_schema = SchemaOrBool::deserialize(resolved.value)?;
 
-    let mut work = WorkQueue::new(resolved.context.id.clone(), &bootstrap_schema);
+    let mut work = WorkQueue::new(resolved.context.location.to_string(), &bootstrap_schema);
 
     while let Some((id, bootstrap_subschema)) = work.pop() {
         bootstrap_subschema.to_schemalets(&mut work, id)?;

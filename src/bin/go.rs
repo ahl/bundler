@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs::canonicalize,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use bundler::{
     ir, ir2, schemalet::to_schemalets, xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
@@ -233,7 +230,7 @@ fn main() {
 }
 
 fn ir2(bundle: Bundle, context: bundler::Context) {
-    let root_id = ir2::SchemaRef::Id(format!("{}#", context.id));
+    let root_id = ir2::SchemaRef::Id(format!("{}#", context.location));
 
     let mut references = vec![(context, "#".to_string())];
 
@@ -241,14 +238,14 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 
     while let Some((context, reference)) = references.pop() {
         println!();
-        println!("got work: {} {}", context.id, reference);
+        println!("got work: {} {}", context.location, reference);
 
         let resolved = bundle
             .resolve(&context, &reference)
             .expect("failed to resolve reference");
         println!("resolved: {:#?}", resolved);
 
-        let xxx = ir2::SchemaRef::Id(resolved.context.id.clone());
+        let xxx = ir2::SchemaRef::Id(resolved.context.location.to_string());
         if let Some(yyy) = raw.get(&xxx) {
             println!("context: {:#?}", context);
             println!("reference: {}", reference);
@@ -425,7 +422,7 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // complete. We're going to try to blaze it all the way through to a canonical
 // representation and take the shortest route with dynamic references.
 fn schemalet(bundle: Bundle, context: bundler::Context) {
-    let root_id = ir2::SchemaRef::Id(format!("{}#", context.id));
+    let root_id = ir2::SchemaRef::Id(format!("{}#", context.location));
 
     let mut references = vec![(context, "#".to_string())];
 
@@ -433,14 +430,14 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
 
     while let Some((context, reference)) = references.pop() {
         println!();
-        println!("got work: {} {}", context.id, reference);
+        println!("got work: {} {}", context.location, reference);
 
         let resolved = bundle
             .resolve(&context, &reference)
             .expect("failed to resolve reference");
 
         if raw.contains_key(&bundler::schemalet::SchemaRef::Id(
-            resolved.context.id.clone(),
+            resolved.context.location.to_string(),
         )) {
             continue;
         }
@@ -463,11 +460,13 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
                         .resolve(&resolved.context, &target)
                         .expect("failed to resolved reference")
                         .context
-                        .id;
+                        .location;
                     println!("$ref => {target} {resolved_target}");
-                    references.push((resolved.context.clone(), resolved_target.clone()));
+                    references.push((resolved.context.clone(), resolved_target.to_string()));
                     bundler::schemalet::Schemalet {
-                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(resolved_target),
+                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(
+                            resolved_target.to_string(),
+                        ),
                         metadata,
                     }
                 }

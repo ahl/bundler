@@ -149,8 +149,8 @@ impl Schema {
             Schema::DynamicRef(_) => State::Stuck(self),
             Schema::Constant(_) => State::Canonical(self),
             Schema::Value(_) => State::Canonical(self),
-            Schema::AllOf(ref subchema_refs) => {
-                if let Some(subschemas) = subchema_refs
+            Schema::AllOf(ref subschema_refs) => {
+                if let Some(subschemas) = subschema_refs
                     .iter()
                     .map(|schema_ref| resolve(done, schema_ref))
                     .collect::<Option<Vec<_>>>()

@@ -1,23 +1,22 @@
+//! How this works
+//!
+//! 1. Read a file into a serde_json::Value
+//! 2. Process anchor and dynamic anchors and the like
+//!    This builds up some sort of map from names to absolute paths
+//!    - do we want to look for references to other files here as well?
+//! 3. Add known desired types into a queue
+//!    This might include just the root schema or also any defs
+//!    - Do we want to read in referenced other files before this step? I think
+//!      probably because we might want to add all those defs or referenced
+//!      schemas as well. On the other hand, random undiscovered refs could
+//!      pull in some new file so I wouldn't be assured that I had them all.
+//!    - Queue entries require a fully qualified path; they may also require
+//!      some additional context? Depends on how we handle dynamic refs.
+
 use std::collections::BTreeMap;
 
 use append_map::AppendMap;
 use url::Url;
-
-/// How this works
-///
-/// 1. Read a file into a serde_json::Value
-/// 2. Process anchor and dynamic anchors and the like
-///    This builds up some sort of map from names to absolute paths
-///    - do we want to look for references to other files here as well?
-/// 3. Add known desired types into a queue
-///    This might include just the root schema or also any defs
-///    - Do we want to read in referenced other files before this step? I think
-///      probably because we might want to add all those defs or referenced
-///      schemas as well. On the other hand, random undiscovered refs could
-///      pull in some new file so I wouldn't be assured that I had them all.
-///    - Queue entries require a fully qualified path; they may also require
-///      some additional context? Depends on how we handle dynamic refs.
-type _XXX = ();
 
 mod append_map;
 mod bool_or;
@@ -81,7 +80,7 @@ pub use schemalet::to_schemalets;
 /// OpenAPI v3.1 in light of the jsonSchema property that allows the document
 /// to change the default interpretation of schemas.
 pub struct Bundle {
-    documents: AppendMap<String, Document>,
+    documents: AppendMap<DocumentId, Document>,
     loader: Box<dyn Loader>,
 }
 
@@ -102,6 +101,42 @@ impl Default for Bundle {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DocumentId(Url);
+
+impl DocumentId {
+    fn from_url(mut url: Url) -> (Self, String) {
+        let fragment = url.fragment().unwrap_or_default().to_string();
+        url.set_fragment(None);
+        (Self(url), fragment)
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        let url: Url = s.parse().unwrap();
+        assert!(url.fragment().is_none());
+        Self(url)
+    }
+    fn url(&self) -> &Url {
+        &self.0
+    }
+
+    fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    fn with_fragment(&self, fragment: &str) -> Url {
+        let mut url = self.0.clone();
+        url.set_fragment(Some(fragment));
+        url
+    }
+}
+
+impl std::fmt::Display for DocumentId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug)]
 pub struct LoadError(pub String);
 
@@ -112,7 +147,7 @@ pub trait Loader {
 
 #[derive(Clone, Debug)]
 pub struct Document {
-    pub id: String,
+    pub id: DocumentId,
     pub content: serde_json::Value,
     pub schema: String,
     pub anchors: BTreeMap<String, String>,
@@ -161,7 +196,7 @@ impl Bundle {
         }?;
 
         let context = Context {
-            id: document.id.clone(),
+            location: document.id.url().clone(),
             dyn_anchors: document.dyn_anchors.clone(),
         };
 
@@ -180,12 +215,9 @@ impl Bundle {
         ref_url.to_string()
     }
 
-    fn xxx_url(base: &str, reference: &str) -> (Url, String) {
-        let base_url = url::Url::parse(base).unwrap();
-        let mut ref_url = base_url.join(reference).unwrap();
-        let fragment = ref_url.fragment().unwrap_or_default().to_string();
-        ref_url.set_fragment(None);
-        (ref_url, fragment)
+    fn xxx_url(base: &Url, reference: &str) -> (DocumentId, String) {
+        let mut ref_url = base.join(reference).unwrap();
+        DocumentId::from_url(ref_url)
     }
 
     /// Resolve a reference within the scope of the given context.
@@ -194,11 +226,11 @@ impl Bundle {
         context: &Context,
         reference: impl AsRef<str>,
     ) -> Result<Resolved, Error> {
-        let (id, fragment) = Self::xxx_url(&context.id, reference.as_ref());
+        let (id, fragment) = Self::xxx_url(&context.location, reference.as_ref());
 
         println!("resolving {} as {} {}", reference.as_ref(), id, fragment);
 
-        let doc = if let Some(doc) = self.documents.get(id.as_str()) {
+        let doc = if let Some(doc) = self.documents.get(&id) {
             doc
         } else {
             // TODO this is the interesting case. We need to somehow load up
@@ -217,7 +249,7 @@ impl Bundle {
             // with JSON Schema stuff built-in and then think about how to
             // handle OpenAPI.
 
-            let contents = self.loader.load(id.clone()).unwrap();
+            let contents = self.loader.load(id.url().clone()).unwrap();
 
             let doc = self.load_document(id.as_str(), &contents);
 
@@ -245,7 +277,7 @@ impl Bundle {
         }
 
         let new_context = Context {
-            id: format!("{}#{}", id, fragment),
+            location: id.with_fragment(&fragment),
             dyn_anchors,
         };
 
@@ -283,7 +315,7 @@ impl Bundle {
         };
 
         let mut document = Document {
-            id: id.to_string(),
+            id: DocumentId::from_str(id),
             content,
             anchors: Default::default(),
             dyn_anchors: Default::default(),
@@ -297,20 +329,19 @@ impl Bundle {
             _ => todo!(),
         }
 
-        self.documents.insert(id.to_string(), document)
+        self.documents.insert(document.id.clone(), document)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    // TODO this is the full url i.e. base + # + path
-    pub id: String,
+    pub location: Url,
     dyn_anchors: BTreeMap<String, String>,
 }
 
 impl Context {
     pub fn dyn_resolve(&self, target: &'_ str) -> &str {
-        println!("dyn resolve id {} {}", self.id, target);
+        println!("dyn resolve id {} {}", self.location, target);
         println!("{:#?}", self.dyn_anchors);
         self.dyn_anchors.get(target).unwrap().as_str()
     }
