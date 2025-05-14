@@ -448,18 +448,47 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
         let schemalets = to_schemalets(&resolved).unwrap();
 
         for (sref, schemalet) in schemalets {
-            println!("sref = {:?}", sref);
+            println!("sref = {}", sref);
             // println!("{}", serde_json::to_string_pretty(&schemalet).unwrap());
 
-            if let bundler::schemalet::SchemaletDetails::RawRef(target) = &schemalet.details {
-                println!("$ref => {target}");
-                references.push((resolved.context.clone(), target.clone()));
-            }
+            let schemalet = match schemalet {
+                // I've decided that the final "raw" form should have relative
+                // references resolved. This makes some of the logic ... into
+                // an opportunity for greater consistency!
+                bundler::schemalet::Schemalet {
+                    details: bundler::schemalet::SchemaletDetails::RawRef(target),
+                    metadata,
+                } => {
+                    let resolved_target = bundle
+                        .resolve(&resolved.context, &target)
+                        .expect("failed to resolved reference")
+                        .context
+                        .id;
+                    println!("$ref => {target} {resolved_target}");
+                    references.push((resolved.context.clone(), resolved_target.clone()));
+                    bundler::schemalet::Schemalet {
+                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(resolved_target),
+                        metadata,
+                    }
+                }
 
-            if let bundler::schemalet::SchemaletDetails::RawDynamicRef(target) = &schemalet.details
-            {
-                println!("$dynReference => {target} {}", context.dyn_resolve(target));
-            }
+                // When we hit a dynamic reference, we resolve it right here and
+                // now. This is imperfect in some ways, but suffices for the
+                // singular use of $dynamicRef that we know of and/or care about.
+                bundler::schemalet::Schemalet {
+                    details: bundler::schemalet::SchemaletDetails::RawDynamicRef(target),
+                    metadata,
+                } => {
+                    let resolved = context.dyn_resolve(&target).to_string();
+                    println!("$dynReference => {target} {resolved}");
+                    bundler::schemalet::Schemalet {
+                        details: bundler::schemalet::SchemaletDetails::ResolvedDynamicRef(resolved),
+                        metadata,
+                    }
+                }
+
+                schemalet => schemalet,
+            };
 
             let old = raw.insert(sref, schemalet);
             assert!(old.is_none());
@@ -467,12 +496,12 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
     }
 
     for (k, _) in &raw {
-        println!("sr {:?}", k);
+        println!("sr {}", k);
     }
 
     for (k, v) in &raw {
-        println!("{:?}: {}", k, serde_json::to_string_pretty(v).unwrap());
+        println!("{}: {}", k, serde_json::to_string_pretty(v).unwrap());
     }
 
-    todo!()
+    todo!("<fin>")
 }

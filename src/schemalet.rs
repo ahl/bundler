@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use serde::Serialize;
 
 use crate::{bootstrap, Resolved};
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SchemaRef {
     Id(String),
     Partial(String, String),
@@ -24,6 +24,29 @@ impl SchemaRef {
     pub fn id(&self) -> String {
         let SchemaRef::Id(id) = self else { panic!() };
         id.clone()
+    }
+}
+
+impl Display for SchemaRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SchemaRef::Id(id) => f.write_str(id),
+            SchemaRef::Partial(id, part) => {
+                f.write_str(id)?;
+                f.write_str(" @@ ")?;
+                f.write_str(part)
+            }
+        }
+    }
+}
+
+impl Serialize for SchemaRef {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = self.to_string();
+        s.serialize(serializer)
     }
 }
 
@@ -57,6 +80,8 @@ pub enum SchemaletDetails {
     RawDynamicRef(String),
     Constant(serde_json::Value),
     Value(SchemaletValue),
+    ResolvedRef(String),
+    ResolvedDynamicRef(String),
 }
 
 #[derive(Serialize)]
