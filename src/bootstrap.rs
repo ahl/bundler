@@ -407,7 +407,7 @@ impl Schema {
                 subschema
                     .dynamic_anchor
                     .as_ref()
-                    .map(|dd| (dd.clone(), format!("{id}{path}")))
+                    .map(|dd| (dd.clone(), path.clone()))
             })
             .collect();
 

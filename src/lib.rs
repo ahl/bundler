@@ -197,7 +197,11 @@ impl Bundle {
 
         let context = Context {
             location: document.id.url().clone(),
-            dyn_anchors: document.dyn_anchors.clone(),
+            dyn_anchors: document
+                .dyn_anchors
+                .iter()
+                .map(|(anchor, path)| (anchor.clone(), document.id.with_fragment(path)))
+                .collect(),
         };
 
         println!("adding {}", &document.id);
@@ -270,8 +274,12 @@ impl Bundle {
 
         // The dynamic anchors of the incoming context *intentionally*
         // overwrite those of the document.
-        // TODO is this right???
-        let mut dyn_anchors = doc.dyn_anchors.clone();
+        let mut dyn_anchors = doc
+            .dyn_anchors
+            .iter()
+            .map(|(anchor, path)| (anchor.clone(), doc.id.with_fragment(path)))
+            .collect::<BTreeMap<_, _>>();
+
         for (k, v) in &context.dyn_anchors {
             dyn_anchors.insert(k.clone(), v.clone());
         }
@@ -336,14 +344,14 @@ impl Bundle {
 #[derive(Debug, Clone)]
 pub struct Context {
     pub location: Url,
-    dyn_anchors: BTreeMap<String, String>,
+    dyn_anchors: BTreeMap<String, Url>,
 }
 
 impl Context {
-    pub fn dyn_resolve(&self, target: &'_ str) -> &str {
+    pub fn dyn_resolve(&self, target: &'_ str) -> &Url {
         println!("dyn resolve id {} {}", self.location, target);
         println!("{:#?}", self.dyn_anchors);
-        self.dyn_anchors.get(target).unwrap().as_str()
+        self.dyn_anchors.get(target).unwrap()
     }
 }
 

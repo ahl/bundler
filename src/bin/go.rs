@@ -464,9 +464,7 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
                     println!("$ref => {target} {resolved_target}");
                     references.push((resolved.context.clone(), resolved_target.to_string()));
                     bundler::schemalet::Schemalet {
-                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(
-                            resolved_target.to_string(),
-                        ),
+                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(resolved_target),
                         metadata,
                     }
                 }
@@ -478,7 +476,7 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
                     details: bundler::schemalet::SchemaletDetails::RawDynamicRef(target),
                     metadata,
                 } => {
-                    let resolved = context.dyn_resolve(&target).to_string();
+                    let resolved = context.dyn_resolve(&target).clone();
                     println!("$dynReference => {target} {resolved}");
                     bundler::schemalet::Schemalet {
                         details: bundler::schemalet::SchemaletDetails::ResolvedDynamicRef(resolved),

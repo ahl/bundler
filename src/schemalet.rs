@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fmt::Display};
 
 use serde::Serialize;
+use url::Url;
 
 use crate::{bootstrap, Resolved};
 
@@ -86,11 +87,11 @@ pub enum SchemaletDetails {
     RawDynamicRef(String),
     Constant(serde_json::Value),
     Value(SchemaletValue),
-    ResolvedRef(String),
-    ResolvedDynamicRef(String),
 
     // Synthetic
     ExclusiveOneOf(Vec<SchemaRef>),
+    ResolvedRef(Url),
+    ResolvedDynamicRef(Url),
 }
 
 #[derive(Serialize)]
