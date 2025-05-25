@@ -102,7 +102,7 @@ impl Default for Bundle {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct DocumentId(Url);
+pub struct DocumentId(Url);
 
 impl DocumentId {
     fn from_url(mut url: Url) -> (Self, String) {

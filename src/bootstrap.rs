@@ -1,9 +1,10 @@
+//!  bootstrapping schema
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
 };
 
-// bootstrapping schema
 use serde::{Deserialize, Serialize};
 
 use crate::{bool_or::ObjectOrBool, ir, ir2, schemalet, Bundle, Document, Error, Resolved};
@@ -270,7 +271,7 @@ impl SchemaOrBool {
 
 impl Schema {
     pub fn iter_schema(&self) -> impl Iterator<Item = (String, &Self)> {
-        self.iter_schema_impl("#".to_string())
+        self.iter_schema_impl(String::new())
     }
 
     fn iter_schema_impl(&self, path: String) -> impl Iterator<Item = (String, &Self)> {

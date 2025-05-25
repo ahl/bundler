@@ -129,6 +129,7 @@ pub enum SchemaletValue {
 #[derive(Serialize)]
 pub struct SchemaletValueObject {
     pub properties: BTreeMap<String, SchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_properties: Option<SchemaRef>,
 }
 
