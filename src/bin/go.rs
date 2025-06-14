@@ -464,7 +464,9 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
                     println!("$ref => {target} {resolved_target}");
                     references.push((resolved.context.clone(), resolved_target.to_string()));
                     bundler::schemalet::Schemalet {
-                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(resolved_target),
+                        details: bundler::schemalet::SchemaletDetails::ResolvedRef(
+                            bundler::schemalet::SchemaRef::Id(resolved_target.to_string()),
+                        ),
                         metadata,
                     }
                 }
@@ -479,7 +481,9 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
                     let resolved = context.dyn_resolve(&target).clone();
                     println!("$dynReference => {target} {resolved}");
                     bundler::schemalet::Schemalet {
-                        details: bundler::schemalet::SchemaletDetails::ResolvedDynamicRef(resolved),
+                        details: bundler::schemalet::SchemaletDetails::ResolvedDynamicRef(
+                            bundler::schemalet::SchemaRef::Id(resolved.to_string()),
+                        ),
                         metadata,
                     }
                 }
@@ -498,6 +502,52 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
 
     for (k, v) in &raw {
         println!("{}: {}", k, serde_json::to_string_pretty(v).unwrap());
+    }
+
+    // 5/25/2025
+    // Now we're going to process the schemalets until they are all in
+    // canonical form. This may take several passes to converge.
+
+    let mut wip = raw;
+    let mut canonical = BTreeMap::new();
+    let mut pass = 0;
+
+    loop {
+        if wip.is_empty() {
+            break;
+        }
+
+        pass += 1;
+        println!("new pass: {pass}");
+        let mut next = BTreeMap::new();
+        let mut simplified = false;
+        for (k, v) in wip {
+            println!("simplifying {k}");
+            match v.simplify(&canonical) {
+                bundler::schemalet::State::Canonical(schemalet) => {
+                    println!("canonical");
+                    simplified = true;
+                    canonical.insert(k, schemalet);
+                }
+
+                bundler::schemalet::State::Stuck(schemalet) => {
+                    next.insert(k, schemalet);
+                }
+                bundler::schemalet::State::Simplified(schemalet, items) => {
+                    simplified = true;
+                    next.insert(k, schemalet);
+                    for (new_k, new_v) in items {
+                        next.insert(new_k, new_v);
+                    }
+                }
+            }
+        }
+
+        wip = next;
+
+        if !simplified {
+            panic!("couldn't simplify more");
+        }
     }
 
     todo!("<fin>")
