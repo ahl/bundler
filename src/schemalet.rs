@@ -9,6 +9,7 @@ use crate::{bootstrap, Resolved};
 pub enum SchemaRef {
     Id(String),
     Partial(String, String),
+    Merge(Vec<SchemaRef>),
 }
 
 impl SchemaRef {
@@ -36,6 +37,15 @@ impl Display for SchemaRef {
                 f.write_str(id)?;
                 f.write_str(" @@ ")?;
                 f.write_str(part)
+            }
+            SchemaRef::Merge(schema_refs) => {
+                f.write_str("<merge> [\n")?;
+                for schema_ref in schema_refs {
+                    f.write_str("  ")?;
+                    schema_ref.fmt(f)?;
+                    f.write_str("\n")?;
+                }
+                f.write_str("]")
             }
         }
     }
@@ -192,7 +202,7 @@ impl Schemalet {
                     .collect::<Option<Vec<_>>>()
                 {
                     println!("{}", serde_json::to_string_pretty(&subschemas).unwrap());
-                    merge_all(subschemas, done)
+                    merge_all(metadata, subschemas, done)
                 } else {
                     State::Stuck(Schemalet {
                         metadata,
@@ -252,6 +262,7 @@ impl Schemalet {
 
 // TODO 6/14/2025 not fully sure why we need the done map...
 fn merge_all(
+    metadata: SchemaletMetadata,
     subschemas: Vec<(SchemaRef, &CanonicalSchemalet)>,
     done: &BTreeMap<SchemaRef, CanonicalSchemalet>,
 ) -> State {
@@ -300,13 +311,52 @@ fn merge_all(
             }
         }
 
+        // TODO do we know anything about the cardinality of `groups` at this
+        // point i.e. do we know that it's >1?
+
         println!(
             "groups {}",
             serde_json::to_string_pretty(&merge_groups).unwrap()
         );
-    }
 
-    todo!()
+        // let xxx = merge_groups.iter().map(|group| {
+        //     let subschemas = group
+        //         .iter()
+        //         .map(|schema_ref| {
+        //             resolve(done, schema_ref)
+        //                 .expect("already resolved previously, so should be infallible")
+        //                 .1
+        //         })
+        //         .collect::<Vec<_>>();
+        //     merge_all_values(subschemas)
+        //     todo!();
+        //     todo!()
+        // });
+
+        let mut new_work = Vec::new();
+        let mut new_subschemas = Vec::new();
+
+        for group in merge_groups {
+            let refs = group.into_iter().cloned().collect::<Vec<_>>();
+            let new_schemaref = SchemaRef::Merge(refs.clone());
+            let new_schemalet = Schemalet {
+                metadata: Default::default(),
+                details: SchemaletDetails::AllOf(refs.clone()),
+            };
+
+            new_work.push((new_schemaref.clone(), new_schemalet));
+            new_subschemas.push(new_schemaref);
+        }
+
+        let new_schemalet = Schemalet {
+            metadata,
+            details: SchemaletDetails::ExclusiveOneOf(new_subschemas),
+        };
+
+        State::Simplified(new_schemalet, new_work)
+    } else {
+        todo!()
+    }
 }
 
 fn trivially_incompatible(
