@@ -9,7 +9,13 @@ use crate::{bootstrap, Resolved};
 pub enum SchemaRef {
     Id(String),
     Partial(String, String),
+
+    // TODO Could this be yes/no?
     Merge(Vec<SchemaRef>),
+    YesNo {
+        yes: Box<SchemaRef>,
+        no: Vec<SchemaRef>,
+    },
 }
 
 impl SchemaRef {
@@ -41,6 +47,17 @@ impl Display for SchemaRef {
             SchemaRef::Merge(schema_refs) => {
                 f.write_str("<merge> [\n")?;
                 for schema_ref in schema_refs {
+                    f.write_str("  ")?;
+                    schema_ref.fmt(f)?;
+                    f.write_str("\n")?;
+                }
+                f.write_str("]")
+            }
+            SchemaRef::YesNo { yes, no } => {
+                f.write_str("<yes/no> [\n  ")?;
+                yes.fmt(f)?;
+                f.write_str("\n")?;
+                for schema_ref in no {
                     f.write_str("  ")?;
                     schema_ref.fmt(f)?;
                     f.write_str("\n")?;
@@ -102,6 +119,7 @@ pub enum SchemaletDetails {
     ExclusiveOneOf(Vec<SchemaRef>),
     ResolvedRef(SchemaRef),
     ResolvedDynamicRef(SchemaRef),
+    YesNo { yes: SchemaRef, no: Vec<SchemaRef> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,7 +191,7 @@ impl CanonicalSchemalet {
             CanonicalSchemaletDetails::Nothing => None,
             // TODO maybe we should handle this differently?
             CanonicalSchemaletDetails::Reference(_) => todo!(),
-            CanonicalSchemaletDetails::ExclusiveOneOf(_) => None,
+            CanonicalSchemaletDetails::ExclusiveOneOf { typ, .. } => typ.clone(),
             CanonicalSchemaletDetails::Value(value) => match value {
                 SchemaletValue::Boolean => Some(SchemaletType::Boolean),
                 SchemaletValue::Array { .. } => Some(SchemaletType::Array),
@@ -183,6 +201,10 @@ impl CanonicalSchemalet {
                 SchemaletValue::Number { .. } => Some(SchemaletType::Number),
             },
         }
+    }
+
+    fn is_nothing(&self) -> bool {
+        matches!(&self.details, CanonicalSchemaletDetails::Nothing)
     }
 }
 
@@ -194,7 +216,12 @@ pub enum CanonicalSchemaletDetails {
     // TODO 6/14/2025 not 100% sure where this is going to be used, but it
     // might be interesting
     Reference(SchemaRef),
-    ExclusiveOneOf(Vec<SchemaRef>),
+    ExclusiveOneOf {
+        /// Cached type iff all subschemas share a single type.
+        typ: Option<SchemaletType>,
+        /// Component subschemas.
+        subschemas: Vec<SchemaRef>,
+    },
     // TODO 6/14/2025 This is wrong. I know I'm going to need constraints (both
     // affirmative and negative), and we need to handle constant values more
     // similarly, etc. Also "Anything", but we'll roll with that.
@@ -229,19 +256,14 @@ impl Schemalet {
     pub fn simplify(self, done: &BTreeMap<SchemaRef, CanonicalSchemalet>) -> State {
         let Self { metadata, details } = self;
         match details {
-            SchemaletDetails::OneOf(schema_refs) => todo!(),
-            SchemaletDetails::Not(schema_ref) => todo!(),
-            SchemaletDetails::IfThen(schema_ref, schema_ref1) => todo!(),
-            SchemaletDetails::IfThenElse(schema_ref, schema_ref1, schema_ref2) => todo!(),
+            SchemaletDetails::OneOf(..) => todo!(),
+            SchemaletDetails::Not(..) => todo!(),
+            SchemaletDetails::IfThen(..) => todo!(),
+            SchemaletDetails::IfThenElse(..) => todo!(),
             SchemaletDetails::RawRef(_) => todo!(),
             SchemaletDetails::RawDynamicRef(_) => todo!(),
-
             SchemaletDetails::AllOf(schema_refs) => {
-                if let Some(subschemas) = schema_refs
-                    .iter()
-                    .map(|schema_ref| resolve(done, schema_ref))
-                    .collect::<Option<Vec<_>>>()
-                {
+                if let Some(subschemas) = resolve_all(done, &schema_refs) {
                     println!("{}", serde_json::to_string_pretty(&subschemas).unwrap());
                     merge_all(metadata, subschemas, done)
                 } else {
@@ -252,15 +274,12 @@ impl Schemalet {
                 }
             }
             SchemaletDetails::AnyOf(schema_refs) => {
-                if let Some(subschemas) = schema_refs
-                    .iter()
-                    .map(|schema_ref| resolve(done, schema_ref))
-                    .collect::<Option<Vec<_>>>()
-                {
-                    panic!(
+                if let Some(subschemas) = resolve_all(done, &schema_refs) {
+                    println!(
                         "canonical anyof {}",
                         serde_json::to_string_pretty(&subschemas).unwrap()
                     );
+                    expand_any_of(metadata, subschemas)
                 } else {
                     State::Stuck(Schemalet {
                         metadata,
@@ -268,7 +287,6 @@ impl Schemalet {
                     })
                 }
             }
-
             SchemaletDetails::Anything => State::Canonical(CanonicalSchemalet {
                 metadata,
                 details: CanonicalSchemaletDetails::Anything,
@@ -281,29 +299,64 @@ impl Schemalet {
                 metadata,
                 details: CanonicalSchemaletDetails::Constant(value),
             }),
-
             SchemaletDetails::ResolvedDynamicRef(reference)
             | SchemaletDetails::ResolvedRef(reference) => State::Canonical(CanonicalSchemalet {
                 metadata,
                 details: CanonicalSchemaletDetails::Reference(reference),
             }),
-
             SchemaletDetails::Value(value) => State::Canonical(CanonicalSchemalet {
                 metadata,
                 details: CanonicalSchemaletDetails::Value(value),
             }),
-
             SchemaletDetails::ExclusiveOneOf(schema_refs) => {
-                if schema_refs
-                    .iter()
-                    .all(|schema_ref| done.contains_key(schema_ref))
-                {
+                if let Some(subschemas) = resolve_all(done, &schema_refs) {
+                    let subschemas = subschemas
+                        .into_iter()
+                        .filter(|(_, schemalet)| !schemalet.is_nothing())
+                        .collect::<Vec<_>>();
+
+                    let new_schema = match subschemas.len() {
+                        0 => CanonicalSchemalet {
+                            metadata,
+                            details: CanonicalSchemaletDetails::Nothing,
+                        },
+
+                        1 => {
+                            let xxx = subschemas.into_iter().next().unwrap().0;
+                            CanonicalSchemalet {
+                                metadata,
+                                details: CanonicalSchemaletDetails::Reference(xxx),
+                            }
+                        }
+
+                        _ => {
+                            let typ = subschemas
+                                .iter()
+                                .map(|(_, schemalet)| schemalet.get_type())
+                                .reduce(|a, b| match (a, b) {
+                                    (Some(aa), Some(bb)) if aa == bb => Some(aa),
+                                    _ => None,
+                                })
+                                .flatten();
+                            let subschemas = subschemas
+                                .into_iter()
+                                .map(|(schema_ref, _)| schema_ref)
+                                .collect();
+
+                            CanonicalSchemalet {
+                                metadata,
+                                details: CanonicalSchemaletDetails::ExclusiveOneOf {
+                                    typ,
+                                    subschemas,
+                                },
+                            }
+                        }
+                    };
+
                     // TODO we need to remove any `Never` schemalets and then
                     // special case 1 => the type, and 0 => Never
-                    State::Canonical(CanonicalSchemalet {
-                        metadata,
-                        details: CanonicalSchemaletDetails::ExclusiveOneOf(schema_refs),
-                    })
+                    // TODO memoize the type
+                    State::Canonical(new_schema)
                 } else {
                     State::Stuck(Schemalet {
                         metadata,
@@ -311,8 +364,95 @@ impl Schemalet {
                     })
                 }
             }
+            SchemaletDetails::YesNo { yes, no } => {
+                let ryes = resolve(done, &yes);
+                let rno = no
+                    .iter()
+                    .map(|sr| resolve(done, sr))
+                    .collect::<Option<Vec<_>>>();
+                if let (Some(yes), Some(no)) = (ryes, rno) {
+                    println!(
+                        "yes/no {}",
+                        serde_json::to_string_pretty(&serde_json::json!({ "yes": yes, "no": no }))
+                            .unwrap()
+                    );
+                    todo!()
+                } else {
+                    State::Stuck(Schemalet {
+                        metadata,
+                        details: SchemaletDetails::YesNo { yes, no },
+                    })
+                }
+            }
         }
     }
+}
+
+fn expand_any_of(
+    metadata: SchemaletMetadata,
+    subschemas: Vec<(SchemaRef, &CanonicalSchemalet)>,
+) -> State {
+    let len = subschemas.len();
+
+    // TODO this could be a lot smarter by looking at the schemas
+    let permutations = (1..(1 << len))
+        .map(|bitmap| {
+            let mut yes = Vec::new();
+            let mut no = Vec::new();
+
+            for (ii, (schema_ref, _)) in subschemas.iter().enumerate() {
+                if (1 << ii) & bitmap != 0 {
+                    yes.push(schema_ref.clone());
+                } else {
+                    no.push(schema_ref.clone());
+                }
+            }
+
+            (yes, no)
+        })
+        .collect::<Vec<_>>();
+    println!("yes/no {:#?}", permutations);
+
+    let mut new_work = Vec::new();
+    let mut new_subschemas = Vec::new();
+
+    for (yes, no) in permutations {
+        let yes = match yes.as_slice() {
+            [] => unreachable!(),
+            [solo] => solo.clone(),
+            all => {
+                let schema_refs = all.iter().cloned().collect::<Vec<_>>();
+                let merge_ref = SchemaRef::Merge(schema_refs.clone());
+                let merge = Schemalet {
+                    metadata: Default::default(),
+                    details: SchemaletDetails::AllOf(schema_refs),
+                };
+
+                new_work.push((merge_ref.clone(), merge));
+                merge_ref
+            }
+        };
+
+        let new_ref = SchemaRef::YesNo {
+            yes: Box::new(yes.clone()),
+            no: no.clone(),
+        };
+
+        let new_subschema = Schemalet {
+            metadata: Default::default(),
+            details: SchemaletDetails::YesNo { yes, no },
+        };
+
+        new_work.push((new_ref.clone(), new_subschema));
+        new_subschemas.push(new_ref);
+    }
+
+    let new_schemalet = Schemalet {
+        metadata,
+        details: SchemaletDetails::ExclusiveOneOf(new_subschemas),
+    };
+
+    State::Simplified(new_schemalet, new_work)
 }
 
 // TODO 6/14/2025 not fully sure why we need the done map...
@@ -326,7 +466,7 @@ fn merge_all(
     let mut rest = Vec::new();
     for (schema_ref, schema) in subschemas {
         match &schema.details {
-            CanonicalSchemaletDetails::ExclusiveOneOf(ss) => xors.push(ss),
+            CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => xors.push(subschemas),
             _ => rest.push((schema_ref, schema)),
         }
     }
@@ -561,4 +701,18 @@ where
             break Some((schema_ref.clone(), schemalet));
         }
     }
+}
+
+fn resolve_all<'a, T, I>(
+    wip: &'a BTreeMap<SchemaRef, T>,
+    schemas: I,
+) -> Option<Vec<(SchemaRef, &'a T)>>
+where
+    T: Refers,
+    I: IntoIterator<Item = &'a SchemaRef>,
+{
+    schemas
+        .into_iter()
+        .map(|schema_ref| resolve(wip, schema_ref))
+        .collect()
 }
