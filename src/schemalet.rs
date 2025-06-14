@@ -136,6 +136,17 @@ pub enum SchemaletValue {
     },
 }
 
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub enum SchemaletType {
+    Boolean,
+    Array,
+    Object,
+    String,
+    Integer,
+    Number,
+    Null,
+}
+
 // TODO don't worry about naming for now, but this will probably be the most
 // relevant output type
 #[derive(Serialize, Debug, Clone)]
@@ -143,6 +154,36 @@ pub struct CanonicalSchemalet {
     #[serde(flatten)]
     pub metadata: SchemaletMetadata,
     pub details: CanonicalSchemaletDetails,
+}
+
+impl CanonicalSchemalet {
+    fn get_type(&self) -> Option<SchemaletType> {
+        match &self.details {
+            CanonicalSchemaletDetails::Constant(value) => match value {
+                serde_json::Value::Null => Some(SchemaletType::Null),
+                serde_json::Value::Bool(_) => Some(SchemaletType::Boolean),
+                serde_json::Value::Number(_) => {
+                    todo!()
+                }
+                serde_json::Value::String(_) => Some(SchemaletType::String),
+                serde_json::Value::Array(_) => Some(SchemaletType::Array),
+                serde_json::Value::Object(_) => Some(SchemaletType::Object),
+            },
+            CanonicalSchemaletDetails::Anything => None,
+            CanonicalSchemaletDetails::Nothing => None,
+            // TODO maybe we should handle this differently?
+            CanonicalSchemaletDetails::Reference(_) => todo!(),
+            CanonicalSchemaletDetails::ExclusiveOneOf(_) => None,
+            CanonicalSchemaletDetails::Value(value) => match value {
+                SchemaletValue::Boolean => Some(SchemaletType::Boolean),
+                SchemaletValue::Array { .. } => Some(SchemaletType::Array),
+                SchemaletValue::Object(_) => Some(SchemaletType::Object),
+                SchemaletValue::String { .. } => Some(SchemaletType::String),
+                SchemaletValue::Integer { .. } => Some(SchemaletType::Integer),
+                SchemaletValue::Number { .. } => Some(SchemaletType::Number),
+            },
+        }
+    }
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -210,11 +251,23 @@ impl Schemalet {
                     })
                 }
             }
-
-            SchemaletDetails::AnyOf(schema_refs) => State::Stuck(Schemalet {
-                metadata,
-                details: SchemaletDetails::AnyOf(schema_refs),
-            }),
+            SchemaletDetails::AnyOf(schema_refs) => {
+                if let Some(subschemas) = schema_refs
+                    .iter()
+                    .map(|schema_ref| resolve(done, schema_ref))
+                    .collect::<Option<Vec<_>>>()
+                {
+                    panic!(
+                        "canonical anyof {}",
+                        serde_json::to_string_pretty(&subschemas).unwrap()
+                    );
+                } else {
+                    State::Stuck(Schemalet {
+                        metadata,
+                        details: SchemaletDetails::AnyOf(schema_refs),
+                    })
+                }
+            }
 
             SchemaletDetails::Anything => State::Canonical(CanonicalSchemalet {
                 metadata,
@@ -245,6 +298,8 @@ impl Schemalet {
                     .iter()
                     .all(|schema_ref| done.contains_key(schema_ref))
                 {
+                    // TODO we need to remove any `Never` schemalets and then
+                    // special case 1 => the type, and 0 => Never
                     State::Canonical(CanonicalSchemalet {
                         metadata,
                         details: CanonicalSchemaletDetails::ExclusiveOneOf(schema_refs),
@@ -355,8 +410,94 @@ fn merge_all(
 
         State::Simplified(new_schemalet, new_work)
     } else {
-        todo!()
+        // Here we know that we've got a flat collection of canonical
+        // schemalets with no nesting. We can also assume that the list of
+        // subschemas is non-empty.
+
+        let subschemas = rest
+            .into_iter()
+            .map(|(_, schemalet)| schemalet)
+            .collect::<Vec<_>>();
+
+        // TODO 6/14/2025
+        // I need to be thoughtful about when I can and don't preserve
+        // metadata. For example, some metadata might become comments on struct
+        // fields.
+
+        let mut merged_details = CanonicalSchemaletDetails::Anything;
+
+        for subschema in subschemas {
+            merged_details = merge_two(&merged_details, &subschema.details);
+        }
+
+        println!(
+            "merged {}",
+            serde_json::to_string_pretty(&merged_details).unwrap()
+        );
+
+        let new_schemalet = CanonicalSchemalet {
+            metadata,
+            details: merged_details,
+        };
+
+        State::Canonical(new_schemalet)
     }
+}
+
+fn merge_two(
+    a: &CanonicalSchemaletDetails,
+    b: &CanonicalSchemaletDetails,
+) -> CanonicalSchemaletDetails {
+    match (a, b) {
+        (CanonicalSchemaletDetails::Anything, other)
+        | (other, CanonicalSchemaletDetails::Anything) => other.clone(),
+
+        (
+            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
+        ) => CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
+
+        (
+            CanonicalSchemaletDetails::Value(SchemaletValue::Object(aa)),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Object(bb)),
+        ) => merge_two_objects(aa, bb),
+
+        _ => todo!(
+            "merge_two {}",
+            serde_json::to_string_pretty(&[a, b]).unwrap()
+        ),
+    }
+}
+
+fn merge_two_objects(
+    aa: &SchemaletValueObject,
+    bb: &SchemaletValueObject,
+) -> CanonicalSchemaletDetails {
+    let prop_names = aa.properties.keys().chain(bb.properties.keys());
+    let properties = prop_names
+        .map(
+            |prop_name| match (aa.properties.get(prop_name), bb.properties.get(prop_name)) {
+                (None, None) => unreachable!("must exist in one or the other"),
+                (None, Some(prop_ref)) | (Some(prop_ref), None) => {
+                    // TODO need to consider the *other* object's
+                    // additionalProperties field.
+                    (prop_name.clone(), prop_ref.clone())
+                }
+                (Some(_), Some(_)) => todo!(),
+            },
+        )
+        .collect();
+
+    let additional_properties = match (&aa.additional_properties, &bb.additional_properties) {
+        (None, None) => None,
+        (None, Some(other)) | (Some(other), None) => Some(other.clone()),
+        (Some(_), Some(_)) => todo!(),
+    };
+
+    CanonicalSchemaletDetails::Value(SchemaletValue::Object(SchemaletValueObject {
+        properties,
+        additional_properties,
+    }))
 }
 
 fn trivially_incompatible(
@@ -367,34 +508,9 @@ fn trivially_incompatible(
     let (_, aaa) = resolve(done, a).unwrap();
     let (_, bbb) = resolve(done, b).unwrap();
 
-    match (&aaa.details, &bbb.details) {
-        (
-            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
-            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
-        ) => false,
-        (
-            CanonicalSchemaletDetails::Value(SchemaletValue::Array { .. }),
-            CanonicalSchemaletDetails::Value(SchemaletValue::Array { .. }),
-        ) => false,
-        (
-            CanonicalSchemaletDetails::Value(SchemaletValue::Object(_)),
-            CanonicalSchemaletDetails::Value(SchemaletValue::Object(_)),
-        ) => false,
-        (
-            CanonicalSchemaletDetails::Value(SchemaletValue::String { .. }),
-            CanonicalSchemaletDetails::Value(SchemaletValue::String { .. }),
-        ) => false,
-        (
-            CanonicalSchemaletDetails::Value(SchemaletValue::Integer { .. }),
-            CanonicalSchemaletDetails::Value(SchemaletValue::Integer { .. }),
-        ) => false,
-        (
-            CanonicalSchemaletDetails::Value(SchemaletValue::Number { .. }),
-            CanonicalSchemaletDetails::Value(SchemaletValue::Number { .. }),
-        ) => false,
-
-        (CanonicalSchemaletDetails::Value(_), CanonicalSchemaletDetails::Value(_)) => true,
-        _ => todo!(),
+    match (aaa.get_type(), bbb.get_type()) {
+        (Some(a_type), Some(b_type)) if a_type != b_type => true,
+        _ => false,
     }
 }
 
