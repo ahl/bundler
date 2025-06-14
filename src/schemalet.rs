@@ -126,10 +126,34 @@ pub enum SchemaletValue {
     },
 }
 
+// TODO don't worry about naming for now, but this will probably be the most
+// relevant output type
+#[derive(Serialize, Debug, Clone)]
+pub struct CanonicalSchemalet {
+    #[serde(flatten)]
+    pub metadata: SchemaletMetadata,
+    pub details: CanonicalSchemaletDetails,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub enum CanonicalSchemaletDetails {
+    Anything,
+    Nothing,
+    Constant(serde_json::Value),
+    // TODO 6/14/2025 not 100% sure where this is going to be used, but it
+    // might be interesting
+    Reference(SchemaRef),
+    ExclusiveOneOf(Vec<SchemaRef>),
+    // TODO 6/14/2025 This is wrong. I know I'm going to need constraints (both
+    // affirmative and negative), and we need to handle constant values more
+    // similarly, etc. Also "Anything", but we'll roll with that.
+    Value(SchemaletValue),
+}
+
 pub enum State {
     Stuck(Schemalet),
     Simplified(Schemalet, Vec<(SchemaRef, Schemalet)>),
-    Canonical(Schemalet),
+    Canonical(CanonicalSchemalet),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -151,8 +175,8 @@ impl Schemalet {
         }
     }
 
-    pub fn simplify(self, done: &BTreeMap<SchemaRef, Schemalet>) -> State {
-        let Self { metadata, details } = &self;
+    pub fn simplify(self, done: &BTreeMap<SchemaRef, CanonicalSchemalet>) -> State {
+        let Self { metadata, details } = self;
         match details {
             SchemaletDetails::OneOf(schema_refs) => todo!(),
             SchemaletDetails::Not(schema_ref) => todo!(),
@@ -170,37 +194,73 @@ impl Schemalet {
                     println!("{}", serde_json::to_string_pretty(&subschemas).unwrap());
                     merge_all(subschemas, done)
                 } else {
-                    State::Stuck(self)
+                    State::Stuck(Schemalet {
+                        metadata,
+                        details: SchemaletDetails::AllOf(schema_refs),
+                    })
                 }
             }
 
-            SchemaletDetails::AnyOf(_) => State::Stuck(self),
+            SchemaletDetails::AnyOf(schema_refs) => State::Stuck(Schemalet {
+                metadata,
+                details: SchemaletDetails::AnyOf(schema_refs),
+            }),
 
-            SchemaletDetails::Constant(_)
-            | SchemaletDetails::Anything
-            | SchemaletDetails::Nothing
-            | SchemaletDetails::ResolvedDynamicRef(_)
-            | SchemaletDetails::ResolvedRef(_)
-            | SchemaletDetails::Value(_) => State::Canonical(self),
+            SchemaletDetails::Anything => State::Canonical(CanonicalSchemalet {
+                metadata,
+                details: CanonicalSchemaletDetails::Anything,
+            }),
+            SchemaletDetails::Nothing => State::Canonical(CanonicalSchemalet {
+                metadata,
+                details: CanonicalSchemaletDetails::Nothing,
+            }),
+            SchemaletDetails::Constant(value) => State::Canonical(CanonicalSchemalet {
+                metadata,
+                details: CanonicalSchemaletDetails::Constant(value),
+            }),
+
+            SchemaletDetails::ResolvedDynamicRef(reference)
+            | SchemaletDetails::ResolvedRef(reference) => State::Canonical(CanonicalSchemalet {
+                metadata,
+                details: CanonicalSchemaletDetails::Reference(reference),
+            }),
+
+            SchemaletDetails::Value(value) => State::Canonical(CanonicalSchemalet {
+                metadata,
+                details: CanonicalSchemaletDetails::Value(value),
+            }),
 
             SchemaletDetails::ExclusiveOneOf(schema_refs) => {
-                // TODO may need to revisit, but I think I can call this done.
-                State::Canonical(self)
+                if schema_refs
+                    .iter()
+                    .all(|schema_ref| done.contains_key(schema_ref))
+                {
+                    State::Canonical(CanonicalSchemalet {
+                        metadata,
+                        details: CanonicalSchemaletDetails::ExclusiveOneOf(schema_refs),
+                    })
+                } else {
+                    State::Stuck(Schemalet {
+                        metadata,
+                        details: SchemaletDetails::ExclusiveOneOf(schema_refs),
+                    })
+                }
             }
         }
     }
 }
 
+// TODO 6/14/2025 not fully sure why we need the done map...
 fn merge_all(
-    subschemas: Vec<(SchemaRef, &Schemalet)>,
-    done: &BTreeMap<SchemaRef, Schemalet>,
+    subschemas: Vec<(SchemaRef, &CanonicalSchemalet)>,
+    done: &BTreeMap<SchemaRef, CanonicalSchemalet>,
 ) -> State {
     // Separate out xors (disjunctions) from other schemas.
     let mut xors = Vec::new();
     let mut rest = Vec::new();
     for (schema_ref, schema) in subschemas {
         match &schema.details {
-            SchemaletDetails::ExclusiveOneOf(ss) => xors.push(ss),
+            CanonicalSchemaletDetails::ExclusiveOneOf(ss) => xors.push(ss),
             _ => rest.push((schema_ref, schema)),
         }
     }
@@ -250,7 +310,7 @@ fn merge_all(
 }
 
 fn trivially_incompatible(
-    done: &BTreeMap<SchemaRef, Schemalet>,
+    done: &BTreeMap<SchemaRef, CanonicalSchemalet>,
     a: &SchemaRef,
     b: &SchemaRef,
 ) -> bool {
@@ -259,31 +319,31 @@ fn trivially_incompatible(
 
     match (&aaa.details, &bbb.details) {
         (
-            SchemaletDetails::Value(SchemaletValue::Boolean),
-            SchemaletDetails::Value(SchemaletValue::Boolean),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
         ) => false,
         (
-            SchemaletDetails::Value(SchemaletValue::Array { .. }),
-            SchemaletDetails::Value(SchemaletValue::Array { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Array { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Array { .. }),
         ) => false,
         (
-            SchemaletDetails::Value(SchemaletValue::Object(_)),
-            SchemaletDetails::Value(SchemaletValue::Object(_)),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Object(_)),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Object(_)),
         ) => false,
         (
-            SchemaletDetails::Value(SchemaletValue::String { .. }),
-            SchemaletDetails::Value(SchemaletValue::String { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::String { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::String { .. }),
         ) => false,
         (
-            SchemaletDetails::Value(SchemaletValue::Integer { .. }),
-            SchemaletDetails::Value(SchemaletValue::Integer { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Integer { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Integer { .. }),
         ) => false,
         (
-            SchemaletDetails::Value(SchemaletValue::Number { .. }),
-            SchemaletDetails::Value(SchemaletValue::Number { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Number { .. }),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Number { .. }),
         ) => false,
 
-        (SchemaletDetails::Value(_), SchemaletDetails::Value(_)) => true,
+        (CanonicalSchemaletDetails::Value(_), CanonicalSchemaletDetails::Value(_)) => true,
         _ => todo!(),
     }
 }
@@ -295,17 +355,44 @@ pub fn to_schemalets(resolved: &Resolved<'_>) -> anyhow::Result<Vec<(SchemaRef, 
     }
 }
 
-fn resolve<'a>(
-    wip: &'a BTreeMap<SchemaRef, Schemalet>,
+trait Refers {
+    fn refers(&self) -> Option<&SchemaRef>;
+}
+
+impl Refers for Schemalet {
+    fn refers(&self) -> Option<&SchemaRef> {
+        match &self.details {
+            SchemaletDetails::ResolvedRef(reference)
+            | SchemaletDetails::ResolvedDynamicRef(reference) => Some(reference),
+            _ => None,
+        }
+    }
+}
+
+impl Refers for CanonicalSchemalet {
+    fn refers(&self) -> Option<&SchemaRef> {
+        if let CanonicalSchemaletDetails::Reference(reference) = &self.details {
+            Some(reference)
+        } else {
+            None
+        }
+    }
+}
+
+fn resolve<'a, T>(
+    wip: &'a BTreeMap<SchemaRef, T>,
     schema_ref: &SchemaRef,
-) -> Option<(SchemaRef, &'a Schemalet)> {
-    let mut schema_ref = schema_ref.clone();
+) -> Option<(SchemaRef, &'a T)>
+where
+    T: Refers,
+{
+    let mut schema_ref = schema_ref;
     loop {
         let schemalet = wip.get(&schema_ref)?;
-        match &schemalet.details {
-            SchemaletDetails::ResolvedRef(reference)
-            | SchemaletDetails::ResolvedDynamicRef(reference) => schema_ref = reference.clone(),
-            _ => break Some((schema_ref, schemalet)),
+        if let Some(reference) = schemalet.refers() {
+            schema_ref = reference;
+        } else {
+            break Some((schema_ref.clone(), schemalet));
         }
     }
 }
