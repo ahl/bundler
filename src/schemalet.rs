@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::{collections::BTreeMap, fmt::Display, ops::Deref};
 
 use serde::Serialize;
 use url::Url;
@@ -174,9 +174,17 @@ pub struct CanonicalSchemalet {
     pub details: CanonicalSchemaletDetails,
 }
 
-impl CanonicalSchemalet {
+impl Deref for CanonicalSchemalet {
+    type Target = CanonicalSchemaletDetails;
+
+    fn deref(&self) -> &Self::Target {
+        &self.details
+    }
+}
+
+impl CanonicalSchemaletDetails {
     fn get_type(&self) -> Option<SchemaletType> {
-        match &self.details {
+        match self {
             CanonicalSchemaletDetails::Constant(value) => match value {
                 serde_json::Value::Null => Some(SchemaletType::Null),
                 serde_json::Value::Bool(_) => Some(SchemaletType::Boolean),
@@ -204,7 +212,7 @@ impl CanonicalSchemalet {
     }
 
     fn is_nothing(&self) -> bool {
-        matches!(&self.details, CanonicalSchemaletDetails::Nothing)
+        matches!(self, CanonicalSchemaletDetails::Nothing)
     }
 }
 
@@ -215,6 +223,10 @@ pub enum CanonicalSchemaletDetails {
     Constant(serde_json::Value),
     // TODO 6/14/2025 not 100% sure where this is going to be used, but it
     // might be interesting
+    // TODO 6/14/2025 yeah this is going to be important: we're going to want
+    // to make sure we don't lose description data e.g. so that a struct field
+    // has a comment and so does its type. We'll want to keep metadata. Typify
+    // will need to deal with it by walking this linked list.
     Reference(SchemaRef),
     ExclusiveOneOf {
         /// Cached type iff all subschemas share a single type.
@@ -304,10 +316,13 @@ impl Schemalet {
                 metadata,
                 details: CanonicalSchemaletDetails::Reference(reference),
             }),
-            SchemaletDetails::Value(value) => State::Canonical(CanonicalSchemalet {
-                metadata,
-                details: CanonicalSchemaletDetails::Value(value),
-            }),
+            SchemaletDetails::Value(value) => {
+                todo!();
+                State::Canonical(CanonicalSchemalet {
+                    metadata,
+                    details: CanonicalSchemaletDetails::Value(value),
+                })
+            }
             SchemaletDetails::ExclusiveOneOf(schema_refs) => {
                 if let Some(subschemas) = resolve_all(done, &schema_refs) {
                     let subschemas = subschemas
@@ -376,7 +391,7 @@ impl Schemalet {
                         serde_json::to_string_pretty(&serde_json::json!({ "yes": yes, "no": no }))
                             .unwrap()
                     );
-                    todo!()
+                    merge_yes_no(yes, no)
                 } else {
                     State::Stuck(Schemalet {
                         metadata,
@@ -384,6 +399,49 @@ impl Schemalet {
                     })
                 }
             }
+        }
+    }
+}
+
+fn merge_yes_no(
+    yes: (SchemaRef, &CanonicalSchemalet),
+    no: Vec<(SchemaRef, &CanonicalSchemalet)>,
+) -> State {
+    if let Some(typ) = yes.1.get_type() {
+        if no.iter().all(|(_, no_subschema)| {
+            no_subschema
+                .get_type()
+                .map_or(false, |no_typ| no_typ != typ)
+        }) {
+            return State::Simplified(
+                Schemalet {
+                    metadata: Default::default(),
+                    details: SchemaletDetails::ResolvedRef(yes.0),
+                },
+                Default::default(),
+            );
+        }
+    }
+
+    match &yes.1.details {
+        CanonicalSchemaletDetails::Anything => todo!(),
+        CanonicalSchemaletDetails::Nothing => State::Simplified(
+            Schemalet {
+                metadata: Default::default(),
+                details: SchemaletDetails::ResolvedRef(yes.0),
+            },
+            Default::default(),
+        ),
+
+        CanonicalSchemaletDetails::Constant(value) => todo!(),
+        CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+
+        CanonicalSchemaletDetails::ExclusiveOneOf { typ, subschemas } => {
+            todo!()
+        }
+
+        CanonicalSchemaletDetails::Value(schemalet_value) => {
+            todo!()
         }
     }
 }
@@ -588,9 +646,17 @@ fn merge_two(
     a: &CanonicalSchemaletDetails,
     b: &CanonicalSchemaletDetails,
 ) -> CanonicalSchemaletDetails {
+    match (a.get_type(), b.get_type()) {
+        (Some(aa), Some(bb)) if aa != bb => return CanonicalSchemaletDetails::Nothing,
+        _ => (),
+    }
     match (a, b) {
         (CanonicalSchemaletDetails::Anything, other)
         | (other, CanonicalSchemaletDetails::Anything) => other.clone(),
+
+        (CanonicalSchemaletDetails::Nothing, _) | (_, CanonicalSchemaletDetails::Nothing) => {
+            CanonicalSchemaletDetails::Nothing
+        }
 
         (
             CanonicalSchemaletDetails::Value(SchemaletValue::Boolean),
