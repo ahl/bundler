@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bundler::{
-    ir, ir2, schemalet::to_schemalets, xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
+    ir, ir2,
+    schemalet::{schemalet_to_type, to_schemalets},
+    xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
 };
 
 fn main() {
@@ -445,8 +447,16 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // generating some code, and figure out the right layering of the various
 // pieces.
 
+// 6/21/2025
+// It's not pretty, but everything is in a canonical form. The next step is to
+// do what I think of as the work of typify: translating schemas to types.
+//
+// - Raw JSON schemas -> schema graph of canonical schemalets.
+// - schema graph -> IR for Rust types
+// - IR -> generated code
+
 fn schemalet(bundle: Bundle, context: bundler::Context) {
-    let root_id = ir2::SchemaRef::Id(format!("{}#", context.location));
+    let root_id = bundler::schemalet::SchemaRef::Id(format!("{}#", context.location));
 
     let mut references = vec![(context, "#".to_string())];
 
@@ -470,7 +480,6 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
 
         for (sref, schemalet) in schemalets {
             println!("sref = {}", sref);
-            // println!("{}", serde_json::to_string_pretty(&schemalet).unwrap());
 
             let schemalet = match schemalet {
                 // I've decided that the final "raw" form should have relative
@@ -579,5 +588,18 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
         println!("canonical {}", schema_ref);
         println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
     }
+
+    typify(canonical, root_id);
     todo!("<fin>");
+}
+
+fn typify(
+    canonical: BTreeMap<bundler::schemalet::SchemaRef, bundler::schemalet::CanonicalSchemalet>,
+    root_id: bundler::schemalet::SchemaRef,
+) {
+    let schemalet = canonical.get(&root_id).unwrap();
+
+    println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
+    schemalet_to_type(schemalet, &canonical);
+    todo!()
 }
