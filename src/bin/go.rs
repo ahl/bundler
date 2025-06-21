@@ -431,6 +431,20 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // to be the output and I should spend time making that thing pretty precisely
 // what I need.
 
+// 6/21/2025
+// Some new thoughts after not working on this for a week. Increasingly, I've
+// come to realize that what we have is a graph (potentially, with cycles), and
+// I need to think about this as local graph optimization and modification. So
+// for each simplification step, I should have access to the full graph. Each
+// node needs more than the one distinction I have today (canonical or not).
+// For example, when simplifying an object, I want to say "might any of your
+// required properties turn out to be non-satisfiable (never)? If not, then I
+// don't care that some properties are non-canonical, I can declare you
+// canonical." Other criteria might include "do I know your type?". That said,
+// I want to burn through this current draft and see if I can actually start
+// generating some code, and figure out the right layering of the various
+// pieces.
+
 fn schemalet(bundle: Bundle, context: bundler::Context) {
     let root_id = ir2::SchemaRef::Id(format!("{}#", context.location));
 
@@ -536,6 +550,7 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
             match v.simplify(&canonical) {
                 bundler::schemalet::State::Canonical(schemalet) => {
                     println!("canonical");
+                    println!("{}", serde_json::to_string_pretty(&schemalet).unwrap());
                     simplified = true;
                     canonical.insert(k, schemalet);
                 }
@@ -560,5 +575,9 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
         }
     }
 
-    todo!("<fin>")
+    for (schema_ref, schemalet) in &canonical {
+        println!("canonical {}", schema_ref);
+        println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
+    }
+    todo!("<fin>");
 }

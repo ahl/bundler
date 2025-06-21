@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fmt::Display, ops::Deref};
 use serde::Serialize;
 use url::Url;
 
-use crate::{bootstrap, Resolved};
+use crate::{bootstrap, ir2::CanonicalSchemaDetails, Resolved};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SchemaRef {
@@ -316,13 +316,10 @@ impl Schemalet {
                 metadata,
                 details: CanonicalSchemaletDetails::Reference(reference),
             }),
-            SchemaletDetails::Value(value) => {
-                todo!();
-                State::Canonical(CanonicalSchemalet {
-                    metadata,
-                    details: CanonicalSchemaletDetails::Value(value),
-                })
-            }
+            SchemaletDetails::Value(value) => State::Canonical(CanonicalSchemalet {
+                metadata,
+                details: CanonicalSchemaletDetails::Value(value),
+            }),
             SchemaletDetails::ExclusiveOneOf(schema_refs) => {
                 if let Some(subschemas) = resolve_all(done, &schema_refs) {
                     let subschemas = subschemas
@@ -391,7 +388,7 @@ impl Schemalet {
                         serde_json::to_string_pretty(&serde_json::json!({ "yes": yes, "no": no }))
                             .unwrap()
                     );
-                    merge_yes_no(yes, no)
+                    merge_yes_no(yes, no, done)
                 } else {
                     State::Stuck(Schemalet {
                         metadata,
@@ -406,6 +403,7 @@ impl Schemalet {
 fn merge_yes_no(
     yes: (SchemaRef, &CanonicalSchemalet),
     no: Vec<(SchemaRef, &CanonicalSchemalet)>,
+    done: &BTreeMap<SchemaRef, CanonicalSchemalet>,
 ) -> State {
     if let Some(typ) = yes.1.get_type() {
         if no.iter().all(|(_, no_subschema)| {
@@ -421,6 +419,19 @@ fn merge_yes_no(
                 Default::default(),
             );
         }
+    }
+
+    if no
+        .iter()
+        .all(|(_, no_subschema)| type_incompatible(&yes.1, no_subschema, done))
+    {
+        return State::Simplified(
+            Schemalet {
+                metadata: Default::default(),
+                details: SchemaletDetails::ResolvedRef(yes.0),
+            },
+            Default::default(),
+        );
     }
 
     match &yes.1.details {
@@ -441,6 +452,57 @@ fn merge_yes_no(
         }
 
         CanonicalSchemaletDetails::Value(schemalet_value) => {
+            todo!()
+        }
+    }
+}
+
+fn type_incompatible(
+    a: &CanonicalSchemalet,
+    b: &CanonicalSchemalet,
+    done: &BTreeMap<SchemaRef, CanonicalSchemalet>,
+) -> bool {
+    match (a, b) {
+        (
+            other @ CanonicalSchemalet {
+                details: CanonicalSchemaletDetails::Value(_),
+                ..
+            },
+            CanonicalSchemalet {
+                details: CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. },
+                ..
+            },
+        )
+        | (
+            CanonicalSchemalet {
+                details: CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. },
+                ..
+            },
+            other @ CanonicalSchemalet {
+                details: CanonicalSchemaletDetails::Value(_),
+                ..
+            },
+        ) => {
+            let subschemas = resolve_all(done, subschemas).unwrap();
+            subschemas
+                .iter()
+                .all(|(_, subschema)| type_incompatible(other, subschema, done))
+        }
+        (a, b)
+            if match (a.get_type(), b.get_type()) {
+                (Some(aa), Some(bb)) if aa != bb => true,
+                _ => false,
+            } =>
+        {
+            true
+        }
+        _ => {
+            println!("unhandled type_incompatible");
+            println!(
+                "{}\n{}",
+                serde_json::to_string_pretty(a).unwrap(),
+                serde_json::to_string_pretty(b).unwrap(),
+            );
             todo!()
         }
     }
