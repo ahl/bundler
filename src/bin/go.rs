@@ -421,6 +421,16 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // Starting yet another attempt that I'm hoping can be cleaner and more
 // complete. We're going to try to blaze it all the way through to a canonical
 // representation and take the shortest route with dynamic references.
+
+// 6/14/2025
+// Working on the "schemalet" model and it's ok. I think I've lost track of
+// preserving metadata and of simplifying the canonical name of a schema e.g.
+// if merging schemas results in exactly one or the other. Some it this might
+// be fixable incrementally, so I really need to push through.
+// The "CanonicalSchemalet" structure seems really right. I expect that's going
+// to be the output and I should spend time making that thing pretty precisely
+// what I need.
+
 fn schemalet(bundle: Bundle, context: bundler::Context) {
     let root_id = ir2::SchemaRef::Id(format!("{}#", context.location));
 
