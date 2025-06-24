@@ -446,6 +446,8 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // I want to burn through this current draft and see if I can actually start
 // generating some code, and figure out the right layering of the various
 // pieces.
+// Also [6/23/2025] we can keep track of back edges to know what updating a
+// node might unblock in terms of outstanding work.
 
 // 6/21/2025
 // It's not pretty, but everything is in a canonical form. The next step is to
@@ -454,6 +456,42 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // - Raw JSON schemas -> schema graph of canonical schemalets.
 // - schema graph -> IR for Rust types
 // - IR -> generated code
+
+// 6/22/2025
+// What types deserve to have a name regardless of whether it's necessary?
+// Currently, we pull out the contents of definitions. In this new version,
+// definitions are just... another path. But perhaps that's still a good way to
+// determine when type names are meaningful.
+
+// 6/23/2025
+// Let's flesh out this idea of the pipeline / layers. In particular, what do
+// we start with? I assume a consumer is going to make a Bundle with some
+// document or documents. And then it's going to specify some collection of
+// types to generate using that bundle as source information (either by saying
+// "this path, and that path" or "all the $defs" or "matching this pattern").
+// In the case of progenitor, each added type is going to require some response
+// so the generated type can later be used. This seems easy enough by using the
+// SchemaRef.
+//
+// Either we'll take that "bundle + type specifiers" and destructively convert
+// it to some sort of collection of types or shove them through one at a
+// time--I'm not sure it matters. Either in serial items or serial batches,
+// we'll convert from Raw -> canonical -> type IR
+//
+// The real question I'm noodling on is "can I have some object whose purpose
+// is to produce type structures for all of its input schemas?". Like, I build
+// it with this graph of canonical schemas and it just chews through them.
+
+// 6/24/2025
+// Two neat ideas:
+// 1. (simple) make a printer and/or transformer that serializes them into a
+// single object i.e. inlining references. This would obviously be a problem
+// for circular references... so may be I infer as much from the "Reference"
+// node. Anyhow: print it out as one big chunk.
+// 2. Figure out a more robust definition of the Reference type. And maybe add
+// some sort of "Replace Me" node for situations where a computed type ends up
+// resolving down to some known type and there's no additional information
+// added.
 
 fn schemalet(bundle: Bundle, context: bundler::Context) {
     let root_id = bundler::schemalet::SchemaRef::Id(format!("{}#", context.location));

@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, fmt::Display, ops::Deref};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+    ops::Deref,
+};
 
 use serde::Serialize;
 
@@ -151,9 +155,10 @@ pub enum SchemaletValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         exclusive_minimum: Option<i64>,
     },
+    Null,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SchemaletType {
     Boolean,
     Array,
@@ -162,6 +167,20 @@ pub enum SchemaletType {
     Integer,
     Number,
     Null,
+}
+
+impl SchemaletType {
+    pub(crate) fn variant_name(&self) -> &'static str {
+        match self {
+            SchemaletType::Boolean => "Boolean",
+            SchemaletType::Array => "Array",
+            SchemaletType::Object => "Object",
+            SchemaletType::String => "String",
+            SchemaletType::Integer => "Integer",
+            SchemaletType::Number => "Number",
+            SchemaletType::Null => "Null",
+        }
+    }
 }
 
 // TODO don't worry about naming for now, but this will probably be the most
@@ -206,6 +225,7 @@ impl CanonicalSchemaletDetails {
                 SchemaletValue::String { .. } => Some(SchemaletType::String),
                 SchemaletValue::Integer { .. } => Some(SchemaletType::Integer),
                 SchemaletValue::Number { .. } => Some(SchemaletType::Number),
+                SchemaletValue::Null => Some(SchemaletType::Null),
             },
         }
     }
@@ -868,14 +888,14 @@ fn schemalet_to_type_enum(
     // TODO what I'm not sure of here is how deep to chase references...
     // something we can figure out later...
 
-    let subschemas = subschemas
+    let resolved_subschemas = subschemas
         .into_iter()
         .map(|schema_ref| graph.get(schema_ref).unwrap())
         .collect::<Vec<_>>();
 
     println!(
         "subschemas {}",
-        serde_json::to_string_pretty(&subschemas).unwrap()
+        serde_json::to_string_pretty(&resolved_subschemas).unwrap()
     );
 
     // There are 4 different patterns for enum variants
@@ -937,26 +957,110 @@ fn schemalet_to_type_enum(
 
     // TODO since we know we don't have good names yet, let's just move on
 
-    if let Some(types) = subschemas
-        .iter()
-        .map(|schemalet| schemalet.get_type())
-        .collect::<Option<Vec<_>>>()
-    {
-        println!("types {}", serde_json::to_string_pretty(&types).unwrap());
-    }
+    let variant_names = if let Some(types) = xxx_rename_all_types_unique(&resolved_subschemas) {
+        types
+            .into_iter()
+            .map(|ty| ty.variant_name().to_string())
+            .collect::<Vec<_>>()
+    } else {
+        (0..resolved_subschemas.len())
+            .map(|ii| format!("Variant{ii}"))
+            .collect::<Vec<_>>()
+    };
+    println!(
+        "variant_names {}",
+        serde_json::to_string_pretty(&variant_names).unwrap()
+    );
 
-    todo!();
+    // 1. Peek into the type to see if there are references that might be
+    //    comments we want to put at the top of our variant
+    // 2. Convert the type. I want to make sure the recursive depth is bounded
+    //    just as a matter of principle. For structs this seems fine--no need
+    //    to recur. Tuples? Also, won't recur for discrete items. What about
+    //    other enums? I'm not really interested in that result. Perhaps I can
+    //    just peek and convert depending on what I see?
+
+    // subschemas
+    //     .iter()
+    //     .zip(variant_names)
+    //     .map(|(variant_schema, variant_name)| {
+    //         make_variant_meta(graph, variant_schema, &variant_name)
+    //     })
+    //     .collect::<Vec<_>>();
+
+    // This is just for untagged.
+    let variants = subschemas
+        .iter()
+        .zip(variant_names)
+        .map(|(variant_ref, variant_name)| untagged_variant(graph, variant_ref, &variant_name))
+        .collect::<Vec<_>>();
+
+    println!(
+        "variants {}",
+        serde_json::to_string_pretty(&variants).unwrap()
+    );
 }
 
-struct EnumVariant {
-    /// Description from the original schema, used as a documentation comment
-    /// on the variant.
-    description: Option<String>,
+fn untagged_variant(
+    graph: &BTreeMap<SchemaRef, CanonicalSchemalet>,
+    variant_ref: &SchemaRef,
+    variant_name: &str,
+) -> EnumVariant {
+    let variant_schema = graph.get(variant_ref).unwrap();
 
-    /// Mechanical details of the variant
+    let details = match &variant_schema.details {
+        CanonicalSchemaletDetails::Anything => unreachable!(),
+        CanonicalSchemaletDetails::Nothing => unreachable!(),
+        // TODO not sure about these ones:
+        CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+        CanonicalSchemaletDetails::Constant(value) => todo!(),
+
+        CanonicalSchemaletDetails::Value(SchemaletValue::Object(SchemaletValueObject {
+            ..
+        })) => {
+            // For an object whose contents we're willing to inline (?? TODO
+            // TBD ??), we convert the type and jam the fields directly into
+            // this variant. Because we can.
+            let xxx = schemalet_to_type(variant_schema, graph);
+            todo!()
+        }
+        CanonicalSchemaletDetails::Value(SchemaletValue::Array {
+            items,
+            min_items,
+            unique_items,
+        }) => {
+            // TODO we're going to need to do something here for tuples...
+            todo!()
+        }
+
+        CanonicalSchemaletDetails::Value(SchemaletValue::Null) => {
+            // TODO another interesting case in that we need to produce a simple variant.
+            todo!()
+        }
+
+        _ => EnumVariantDetails::Item(variant_ref.clone()),
+    };
+
+    println!(
+        "details {}, {}",
+        variant_name,
+        serde_json::to_string_pretty(&details).unwrap()
+    );
+
+    EnumVariant {
+        name: variant_name.to_string(),
+        details,
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct EnumVariant {
+    name: String,
+
     details: EnumVariantDetails,
 }
 
+#[derive(Debug, Serialize)]
 enum EnumVariantDetails {
     /// A simple variant corresponds to a particular value. This will typically
     /// be a string label for an externally tagged enum, or a tag value for an
@@ -967,4 +1071,61 @@ enum EnumVariantDetails {
     Item(SchemaRef),
     Tuple(Vec<SchemaRef>),
     // Struct(Vec<StructProperty>),
+}
+
+fn make_variant_meta(
+    graph: &BTreeMap<SchemaRef, CanonicalSchemalet>,
+    variant_schema: &CanonicalSchemalet,
+    variant_name: &str,
+) -> VariantMeta {
+    match &variant_schema.details {
+        CanonicalSchemaletDetails::Anything => {
+            // This should not be reachable. What would it mean to have an
+            // exclusive one-of that included a permissive schema?
+            // Tautologically this would to need to be the only variant, and
+            // thus we should have simplified away the one-of construction.
+            unreachable!()
+        }
+        CanonicalSchemaletDetails::Nothing => {
+            // Similarly, we only construct exclusive one-of schemas knowing
+            // that each variant is viable. This variant should already have
+            // been eliminated.
+            unreachable!()
+        }
+        CanonicalSchemaletDetails::Constant(value) => todo!(),
+        CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+        CanonicalSchemaletDetails::ExclusiveOneOf { .. } => {
+            // Fine: we aren't going to be able to do anything interesting
+            // inline in the context of this variants, so we are fine making
+            // this simply an "item" variant.
+            todo!()
+        }
+        CanonicalSchemaletDetails::Value(SchemaletValue::Object(SchemaletValueObject {
+            ..
+        })) => {
+            // This is the most interesting case and is a preconsition for
+            // externally-, internally-, and adjacently-tagged enums.
+            todo!()
+        }
+        CanonicalSchemaletDetails::Value(schemalet_value) => todo!(),
+    }
+
+    todo!()
+}
+
+struct VariantMeta {
+    description: Option<String>,
+
+    constant_value_fields: BTreeMap<String, String>,
+}
+
+fn xxx_rename_all_types_unique(subschemas: &[&CanonicalSchemalet]) -> Option<Vec<SchemaletType>> {
+    let types = subschemas
+        .into_iter()
+        .map(|schema| schema.get_type())
+        .collect::<Option<Vec<_>>>()?;
+
+    let unique_types = types.iter().collect::<BTreeSet<_>>();
+
+    (types.len() == unique_types.len()).then_some(types)
 }
