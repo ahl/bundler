@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bundler::{
     ir, ir2,
-    schemalet::{schemalet_to_type, to_schemalets},
+    schemalet::{schemalet_print, schemalet_to_type, to_schemalets},
     xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
 };
 
@@ -635,9 +635,11 @@ fn typify(
     canonical: BTreeMap<bundler::schemalet::SchemaRef, bundler::schemalet::CanonicalSchemalet>,
     root_id: bundler::schemalet::SchemaRef,
 ) {
+    schemalet_print(&canonical, &root_id);
     let schemalet = canonical.get(&root_id).unwrap();
 
     println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
+
     schemalet_to_type(schemalet, &canonical);
     todo!()
 }

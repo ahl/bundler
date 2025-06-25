@@ -4,7 +4,7 @@ use std::{
     ops::Deref,
 };
 
-use serde::Serialize;
+use serde::{ser::SerializeMap, Serialize};
 
 use crate::{bootstrap, Resolved};
 
@@ -781,6 +781,8 @@ fn merge_two_objects(
         (Some(_), Some(_)) => todo!(),
     };
 
+    assert!(additional_properties.is_none());
+
     CanonicalSchemaletDetails::Value(SchemaletValue::Object(SchemaletValueObject {
         properties,
         additional_properties,
@@ -1128,4 +1130,134 @@ fn xxx_rename_all_types_unique(subschemas: &[&CanonicalSchemalet]) -> Option<Vec
     let unique_types = types.iter().collect::<BTreeSet<_>>();
 
     (types.len() == unique_types.len()).then_some(types)
+}
+
+struct ThingPrinter<'a> {
+    graph: &'a BTreeMap<SchemaRef, CanonicalSchemalet>,
+    schema_ref: SchemaRef,
+}
+
+impl Serialize for ThingPrinter<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let Self { graph, schema_ref } = self;
+        let schemalet = graph.get(schema_ref).unwrap();
+
+        let mut map = serializer.serialize_map(None)?;
+
+        let CanonicalSchemalet { metadata, details } = schemalet;
+        let SchemaletMetadata {
+            title,
+            description,
+            examples,
+        } = metadata;
+
+        if let Some(title) = title {
+            map.serialize_entry("title", title)?;
+        }
+        if let Some(description) = description {
+            map.serialize_entry("description", description)?;
+        }
+        if !examples.is_empty() {
+            map.serialize_entry("examples", examples)?;
+        }
+
+        match details {
+            CanonicalSchemaletDetails::Anything => {
+                // TODO?
+            }
+            CanonicalSchemaletDetails::Nothing => todo!(),
+            CanonicalSchemaletDetails::Constant(value) => {
+                map.serialize_entry("const", value)?;
+            }
+            CanonicalSchemaletDetails::Reference(schema_ref) => {
+                map.serialize_entry("$ref", schema_ref)?;
+            }
+            CanonicalSchemaletDetails::ExclusiveOneOf { typ, subschemas } => {
+                let xxx = subschemas
+                    .iter()
+                    .map(|ss| ThingPrinter {
+                        graph,
+                        schema_ref: ss.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                map.serialize_entry("xor", &xxx)?;
+            }
+            CanonicalSchemaletDetails::Value(schemalet_value) => match schemalet_value {
+                SchemaletValue::Boolean => {
+                    map.serialize_entry("type", "boolean")?;
+                }
+                SchemaletValue::Array {
+                    items,
+                    min_items,
+                    unique_items,
+                } => {
+                    map.serialize_entry("type", "array")?;
+                    // TODO
+                }
+                SchemaletValue::Object(schemalet_value_object) => {
+                    map.serialize_entry("type", "object")?;
+                    let SchemaletValueObject {
+                        properties,
+                        additional_properties,
+                    } = schemalet_value_object;
+
+                    let properties = properties
+                        .iter()
+                        .map(|(k, v)| {
+                            (
+                                k,
+                                ThingPrinter {
+                                    graph,
+                                    schema_ref: v.clone(),
+                                },
+                            )
+                        })
+                        .collect::<BTreeMap<_, _>>();
+
+                    map.serialize_entry("properties", &properties)?;
+
+                    if let Some(additional_properties) = additional_properties {
+                        map.serialize_entry("additionalProperties", &additional_properties)?;
+                    }
+                }
+                SchemaletValue::String { pattern, format } => {
+                    map.serialize_entry("type", "string")?;
+                    if let Some(pattern) = pattern {
+                        map.serialize_entry("pattern", pattern)?;
+                    }
+                    if let Some(format) = format {
+                        map.serialize_entry("format", format)?;
+                    }
+                }
+                SchemaletValue::Integer {
+                    minimum,
+                    exclusive_minimum,
+                } => {
+                    map.serialize_entry("type", "integer")?;
+                }
+                SchemaletValue::Number {
+                    minimum,
+                    exclusive_minimum,
+                } => {
+                    map.serialize_entry("type", "number")?;
+                }
+                SchemaletValue::Null => todo!(),
+            },
+        }
+
+        map.end()
+    }
+}
+
+pub fn schemalet_print(graph: &BTreeMap<SchemaRef, CanonicalSchemalet>, schema_ref: &SchemaRef) {
+    let tp = ThingPrinter {
+        graph,
+        schema_ref: schema_ref.clone(),
+    };
+
+    println!("{}", serde_json::to_string_pretty(&tp).unwrap());
+    panic!()
 }
