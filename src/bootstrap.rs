@@ -14,41 +14,29 @@ type SchemaOrBool = ObjectOrBool<Schema>;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Schema {
-    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     schema: Option<String>,
-    #[serde(rename = "$id", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "$id", skip_serializing_if = "Option::is_none")]
     id: Option<String>,
-    #[serde(
-        rename = "$dynamicAnchor",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "$dynamicAnchor", skip_serializing_if = "Option::is_none")]
     dynamic_anchor: Option<String>,
-    #[serde(
-        rename = "$dynamicRef",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "$dynamicRef", skip_serializing_if = "Option::is_none")]
     dynamic_ref: Option<String>,
-    #[serde(rename = "$ref", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "$ref", skip_serializing_if = "Option::is_none")]
     r#ref: Option<String>,
-    #[serde(
-        rename = "$vocabulary",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "$vocabulary", skip_serializing_if = "Option::is_none")]
     // TODO ignoring the validation of this one for now, and just using Value.
     vocabulary: Option<serde_json::Value>,
-    #[serde(rename = "$comment", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "$comment", skip_serializing_if = "Option::is_none")]
     comment: Option<String>,
-    // TODO I wonder if I should ignore defs?
+    // TODO I wonder if I should ignore defs since we never look at them?
     #[serde(rename = "$defs", default, skip_serializing_if = "BTreeMap::is_empty")]
     defs: BTreeMap<String, SchemaOrBool>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     r#type: Option<Type>,
 
     // Objects
@@ -56,58 +44,45 @@ pub struct Schema {
     properties: BTreeMap<String, SchemaOrBool>,
     #[serde(
         rename = "additionalProperties",
-        default,
         skip_serializing_if = "Option::is_none"
     )]
     additional_properties: Option<SchemaOrBool>,
-    #[serde(
-        rename = "propertyNames",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "propertyNames", skip_serializing_if = "Option::is_none")]
     property_names: Option<SchemaOrBool>,
 
     // Arrays
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     items: Option<SchemaOrBool>,
-    #[serde(rename = "minItems", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "minItems", skip_serializing_if = "Option::is_none")]
     min_items: Option<u64>,
-    #[serde(
-        rename = "uniqueItems",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "uniqueItems", skip_serializing_if = "Option::is_none")]
     unique_items: Option<bool>,
 
     // Subschemas
-    #[serde(rename = "allOf", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "allOf", skip_serializing_if = "Option::is_none")]
     all_of: Option<NonEmpty<Vec<SchemaOrBool>>>,
-    #[serde(rename = "anyOf", default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "anyOf", skip_serializing_if = "Option::is_none")]
     any_of: Option<NonEmpty<Vec<SchemaOrBool>>>,
 
     // Strings
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pattern: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     format: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     deprecated: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     default: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     r#enum: Option<Vec<serde_json::Value>>,
 
     // In the real schema this probably needs to be something that can handle
     // integers and floats, but a u64 here is fine for the bootstrap schema.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     minimum: Option<i64>,
-    #[serde(
-        rename = "exclusiveMinimum",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "exclusiveMinimum", skip_serializing_if = "Option::is_none")]
     exclusive_minimum: Option<i64>,
 }
 

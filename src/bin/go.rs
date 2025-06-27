@@ -640,6 +640,9 @@ fn typify(
 
     println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
 
-    schemalet_to_type(schemalet, &canonical);
+    let mut converter = bundler::convert::Converter::new(canonical);
+
+    converter.convert(&root_id);
+
     todo!()
 }

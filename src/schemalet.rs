@@ -878,8 +878,54 @@ pub fn schemalet_to_type(
         CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
             schemalet_to_type_enum(&schemalet.metadata, subschemas, graph)
         }
-        CanonicalSchemaletDetails::Value(schemalet_value) => todo!(),
+        CanonicalSchemaletDetails::Value(schemalet_value) => {
+            schemalet_to_type_value(&schemalet.metadata, schemalet_value, graph)
+        }
     }
+}
+
+fn schemalet_to_type_value(
+    metadata: &SchemaletMetadata,
+    value: &SchemaletValue,
+    graph: &BTreeMap<SchemaRef, CanonicalSchemalet>,
+) {
+    match value {
+        SchemaletValue::Boolean => todo!(),
+        SchemaletValue::Array {
+            items,
+            min_items,
+            unique_items,
+        } => todo!(),
+
+        SchemaletValue::Object(object) => schemalet_to_type_value_object(metadata, object, graph),
+        SchemaletValue::String { pattern, format } => todo!(),
+        SchemaletValue::Integer {
+            minimum,
+            exclusive_minimum,
+        } => todo!(),
+        SchemaletValue::Number {
+            minimum,
+            exclusive_minimum,
+        } => todo!(),
+        SchemaletValue::Null => todo!(),
+    }
+}
+
+fn schemalet_to_type_value_object(
+    metadata: &SchemaletMetadata,
+    object: &SchemaletValueObject,
+    graph: &BTreeMap<SchemaRef, CanonicalSchemalet>,
+) {
+    let SchemaletValueObject {
+        properties,
+        additional_properties,
+    } = object;
+
+    if properties.is_empty() {
+        assert!(additional_properties.is_some());
+    }
+
+    todo!()
 }
 
 fn schemalet_to_type_enum(
@@ -901,9 +947,9 @@ fn schemalet_to_type_enum(
     );
 
     // There are 4 different patterns for enum variants
-    // - Externally tagged: object with a constant-value property and an
+    // - Externally tagged: either strings or objects with a single property
+    // - Adjacently tagged: object with a constant-value property and an
     //   optional other property whose value can be anything
-    // - Adjacently tagged: either strings or objects with a single property
     // - Internally tagged: object whose constant-value properties we record
     // - Untagged: everything else
     //
@@ -1259,5 +1305,4 @@ pub fn schemalet_print(graph: &BTreeMap<SchemaRef, CanonicalSchemalet>, schema_r
     };
 
     println!("{}", serde_json::to_string_pretty(&tp).unwrap());
-    panic!()
 }

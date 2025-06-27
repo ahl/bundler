@@ -21,10 +21,12 @@ use url::Url;
 mod append_map;
 mod bool_or;
 mod bootstrap;
+pub mod convert;
 pub mod ir;
 pub mod ir2;
 mod loader;
 pub mod schemalet;
+pub mod typespace;
 pub mod typify_draft;
 
 pub use loader::*;
