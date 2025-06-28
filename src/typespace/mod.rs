@@ -51,6 +51,7 @@ impl<Id> TypespaceBuilder<Id> {
     }
 }
 
+#[derive(Debug)]
 pub enum Type<Id> {
     Enum(TypeEnum<Id>),
     Struct(TypeStruct<Id>),

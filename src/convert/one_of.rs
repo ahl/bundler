@@ -1,10 +1,20 @@
+use std::collections::BTreeSet;
+
 use crate::{
     convert::Converter,
-    schemalet::{CanonicalSchemaletDetails, SchemaRef, SchemaletMetadata, SchemaletValue},
+    schemalet::{
+        CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletMetadata,
+        SchemaletValue, SchemaletValueObject,
+    },
+    typespace::{EnumTagType, EnumVariant, StructProperty, Type, TypeEnum, VariantDetails},
 };
 
 impl Converter {
-    pub(crate) fn convert_one_of(&self, metadata: &SchemaletMetadata, subschemas: &[SchemaRef]) {
+    pub(crate) fn convert_one_of(
+        &self,
+        metadata: &SchemaletMetadata,
+        subschemas: &[SchemaRef],
+    ) -> Type<SchemaRef> {
         let resolved_subschemas = subschemas
             .into_iter()
             .map(|schema_ref| self.get(schema_ref))
@@ -19,61 +29,28 @@ impl Converter {
             .iter()
             .map(|variant_id| {
                 let schemalet = self.get(variant_id);
-                let kind = match &schemalet.details {
-                    CanonicalSchemaletDetails::Constant(value) => ProtoVariantKind::Constant {
-                        value: value.clone(),
-                    },
-                    CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
-                    CanonicalSchemaletDetails::Value(SchemaletValue::Object(object)) => {
-                        let solo_prop =
-                            match (object.properties.len(), object.properties.iter().next()) {
-                                (1, Some((prop_name, prop_id))) => {
-                                    Some((prop_name.clone(), prop_id))
-                                }
-                                _ => None,
-                            };
-                        let const_value = object
-                            .properties
-                            .iter()
-                            .filter_map(|(prop_name, prop_id)| {
-                                let prop_schema = self.resolve(prop_id);
-                                if let CanonicalSchemaletDetails::Constant(value) =
-                                    &prop_schema.details
-                                {
-                                    Some((prop_name.clone(), value.clone()))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>();
-
-                        ProtoVariantKind::Object {
-                            solo_prop,
-                            const_value,
-                            property_count: object.properties.len(),
-                        }
-                    }
-                    CanonicalSchemaletDetails::Value(_) => ProtoVariantKind::Other,
-                    CanonicalSchemaletDetails::Anything => todo!(),
-                    CanonicalSchemaletDetails::Nothing => todo!(),
-                    CanonicalSchemaletDetails::ExclusiveOneOf { typ, subschemas } => todo!(),
-                };
+                // TODO this is where we are going to look for titles and
+                // descriptions. We're going to keep walking until we hit a
+                // concrete type.
                 ProtoVariant {
                     id: variant_id,
+                    schemalet,
                     name: None,
                     description: None,
-                    kind,
                 }
             })
             .collect::<Vec<_>>();
 
-        if let Some(ty) = self.maybe_externally_tagged_enum(metadata, &proto_variants) {
-            ty
-        }
-        // ... adjacent and internal
+        println!("{}", serde_json::to_string_pretty(&proto_variants).unwrap());
 
-        println!("{:#?}", proto_variants);
-        todo!()
+        let ty = if let Some(ty) = self.maybe_externally_tagged_enum(metadata, &proto_variants) {
+            todo!()
+        } else {
+            // TODO ... adjacent and internal
+            self.untagged_enum(metadata, &proto_variants)
+        };
+
+        ty
     }
 
     fn maybe_externally_tagged_enum(
@@ -81,48 +58,151 @@ impl Converter {
         metadata: &SchemaletMetadata,
         proto_variants: &[ProtoVariant],
     ) -> Option<()> {
-        let xxx = proto_variants
+        let variants = proto_variants
             .iter()
-            .map(|variant| match &variant.kind {
-                ProtoVariantKind::Constant { value } => Some((value.as_str()?.to_string(), None)),
-                ProtoVariantKind::Object {
-                    solo_prop: Some((prop_name, prop_id)),
-                    ..
-                } => Some((prop_name.clone(), Some(*prop_id))),
-                _ => None,
+            .map(|proto| match &proto.schemalet.details {
+                CanonicalSchemaletDetails::Anything => None,
+                CanonicalSchemaletDetails::Nothing => None,
+                CanonicalSchemaletDetails::Constant(value) => Some(ProtoVariantExternal {
+                    proto,
+                    kind: ProtoVariantExternalKind::Simple(value.as_str()?.to_string()),
+                }),
+                CanonicalSchemaletDetails::Reference(_) => {
+                    unreachable!("we should have already eliminated this possibility")
+                }
+                CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
+                    // TODO check for the result of an enum: ["foo", "bar"]
+                    todo!();
+                }
+                CanonicalSchemaletDetails::Value(SchemaletValue::Object(
+                    // TODO more checks?
+                    // TODO required!
+                    SchemaletValueObject { properties, .. },
+                )) if properties.len() == 1 => {
+                    let (name, schema_ref) = properties.iter().next().unwrap().clone();
+                    Some(ProtoVariantExternal {
+                        proto,
+                        kind: ProtoVariantExternalKind::Typed(name.clone(), schema_ref),
+                    })
+                }
+                CanonicalSchemaletDetails::Value(_) => None,
             })
             .collect::<Option<Vec<_>>>()?;
         todo!()
     }
+
+    fn untagged_enum(
+        &self,
+        metadata: &crate::schemalet::SchemaletMetadata,
+        proto_variants: &[ProtoVariant],
+    ) -> Type<SchemaRef> {
+        // 6/27/2025
+        // I need to figure out decent names for the variants... and I'm a
+        // little unhappy that I may not know the names of the types yet. I
+        // wonder if I'm going to end up needing another pass in here, but I'm
+        // trying to put that out of my mind so that I can just get something
+        // done.
+
+        // Variants names should all be "of a kind" meaning that we shouldn't
+        // mix and match. We'll first try to apply names from the schemas (i.e.
+        // the tiles and paths); then we'll use type classification (integer,
+        // boolean, object), and finally we'll fall back on Variant{n}.
+
+        let variant_names = if let Some(title_names) = proto_variants
+            .iter()
+            .map(|proto| {
+                proto
+                    .name
+                    .clone()
+                    .or_else(|| proto.schemalet.metadata.title.clone())
+            })
+            .collect::<Option<Vec<_>>>()
+        {
+            todo!()
+        } else if let Some(kind_names) = maybe_kind_names(proto_variants) {
+            kind_names
+        } else {
+            todo!()
+        };
+        println!("{}", serde_json::to_string_pretty(&variant_names).unwrap());
+
+        let variants = proto_variants
+            .iter()
+            .zip(variant_names)
+            .map(|(proto, name)| {
+                let details =
+                    if let Some(struct_props) = self.xxx_maybe_struct_props(&proto.schemalet) {
+                        VariantDetails::<SchemaRef>::Struct(struct_props)
+                    } else {
+                        VariantDetails::<SchemaRef>::Item(proto.id.clone())
+                    };
+
+                EnumVariant {
+                    variant_name: name,
+                    description: proto.description.clone(),
+                    details,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Type::Enum(TypeEnum {
+            name: "abc".to_string(),
+            description: metadata.description.clone(),
+            default: None,
+            tag_type: EnumTagType::Untagged,
+            variants,
+            deny_unknown_fields: false,
+        })
+    }
+
+    fn xxx_maybe_struct_props(
+        &self,
+        schemalet: &CanonicalSchemalet,
+    ) -> Option<Vec<StructProperty<SchemaRef>>> {
+        // TODO somehow I need to know if this is a type that's going to have a
+        // name.
+        // TODO or we somehow defer that decision to the Typespace's finalize step?
+        let object = schemalet.as_object()?;
+
+        let obj_ty = self.convert_object_to_struct(&schemalet.metadata, object);
+
+        println!("{:#?}", obj_ty);
+
+        Some(obj_ty.properties)
+    }
 }
 
-#[derive(Debug)]
+fn maybe_kind_names(proto_variants: &[ProtoVariant]) -> Option<Vec<String>> {
+    let xxx = proto_variants
+        .iter()
+        .map(|proto| proto.schemalet.get_type())
+        .collect::<Option<Vec<_>>>()?;
+
+    let yyy = xxx.iter().collect::<BTreeSet<_>>();
+
+    (xxx.len() == yyy.len()).then(|| {
+        xxx.into_iter()
+            .map(|t| t.variant_name().to_string())
+            .collect()
+    })
+}
+
+#[derive(Debug, serde::Serialize)]
 struct ProtoVariant<'a> {
     id: &'a SchemaRef,
+    schemalet: &'a CanonicalSchemalet,
     /// A name from a part of the schema.
     name: Option<String>,
     /// A comment from a part of the schema.
     description: Option<String>,
-
-    kind: ProtoVariantKind<'a>,
 }
 
-#[derive(Debug)]
-enum ProtoVariantKind<'a> {
-    Other,
-    /// Constant value; appropriate for a stock externally tagged enum or an
-    /// with custom serde where each variant represents a fixed value.
-    Constant {
-        value: serde_json::Value,
-    },
-    /// An object with its solo property and constant values. The former is
-    /// relevant for externally tagged enums; the latter for adjacently and
-    /// internally tagged enums. These are represented together because we
-    /// won't know the germane interpretation until we evaluate all the
-    /// variants toegether.
-    Object {
-        solo_prop: Option<(String, &'a SchemaRef)>,
-        property_count: usize,
-        const_value: Vec<(String, serde_json::Value)>,
-    },
+struct ProtoVariantExternal<'a> {
+    proto: &'a ProtoVariant<'a>,
+    kind: ProtoVariantExternalKind<'a>,
+}
+
+enum ProtoVariantExternalKind<'a> {
+    Simple(String),
+    Typed(String, &'a SchemaRef),
 }

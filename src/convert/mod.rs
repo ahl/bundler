@@ -1,10 +1,11 @@
+mod object;
 mod one_of;
 
 use std::collections::BTreeMap;
 
 use crate::{
-    schemalet::{CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef},
-    typespace::TypespaceBuilder,
+    schemalet::{CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletValue},
+    typespace::{Type, TypespaceBuilder},
 };
 
 // TODO naming?
@@ -36,18 +37,37 @@ impl Converter {
         }
     }
 
-    pub fn convert(&mut self, id: &SchemaRef) {
+    pub fn convert(&mut self, id: &SchemaRef) -> Type<SchemaRef> {
         let CanonicalSchemalet { metadata, details } = self.get(id);
 
-        let ty = match details {
-            crate::schemalet::CanonicalSchemaletDetails::Anything => todo!(),
-            crate::schemalet::CanonicalSchemaletDetails::Nothing => todo!(),
-            crate::schemalet::CanonicalSchemaletDetails::Constant(_) => todo!(),
-            crate::schemalet::CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
-            crate::schemalet::CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
+        match details {
+            CanonicalSchemaletDetails::Anything => todo!(),
+            CanonicalSchemaletDetails::Nothing => todo!(),
+            CanonicalSchemaletDetails::Constant(_) => todo!(),
+            CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+            CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
                 self.convert_one_of(metadata, subschemas)
             }
-            crate::schemalet::CanonicalSchemaletDetails::Value(schemalet_value) => todo!(),
-        };
+
+            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Array {
+                items,
+                min_items,
+                unique_items,
+            }) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Object(object)) => {
+                self.convert_object(metadata, object)
+            }
+            CanonicalSchemaletDetails::Value(SchemaletValue::String { pattern, format }) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Integer {
+                minimum,
+                exclusive_minimum,
+            }) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Number {
+                minimum,
+                exclusive_minimum,
+            }) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Null) => todo!(),
+        }
     }
 }

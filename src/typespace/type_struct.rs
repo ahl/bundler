@@ -2,8 +2,9 @@ use crate::typespace::JsonValue;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeStruct<Id> {
+    // TODO fancy naming?
     pub name: String,
-    pub rename: Option<String>,
+    //     pub rename: Option<String>,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub properties: Vec<StructProperty<Id>>,
@@ -13,17 +14,16 @@ pub struct TypeStruct<Id> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StructProperty<Id> {
-    pub name: String,
-    pub rename: StructPropertyRename,
+    pub rust_name: String,
+    pub json_name: StructPropertySerialization,
     pub state: StructPropertyState,
     pub description: Option<String>,
     pub type_id: Id,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum StructPropertyRename {
-    None,
-    Rename(String),
+pub enum StructPropertySerialization {
+    Json(String),
     Flatten,
 }
 

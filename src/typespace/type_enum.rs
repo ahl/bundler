@@ -32,8 +32,9 @@ pub enum EnumTagType {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EnumVariant<Id> {
-    pub json_name: String,
     pub variant_name: String,
+    // TODO need a name for serialization?
+    // pub json_name: String,
     pub description: Option<String>,
     pub details: VariantDetails<Id>,
 }

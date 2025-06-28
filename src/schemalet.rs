@@ -201,7 +201,7 @@ impl Deref for CanonicalSchemalet {
 }
 
 impl CanonicalSchemaletDetails {
-    fn get_type(&self) -> Option<SchemaletType> {
+    pub fn get_type(&self) -> Option<SchemaletType> {
         match self {
             CanonicalSchemaletDetails::Constant(value) => match value {
                 serde_json::Value::Null => Some(SchemaletType::Null),
@@ -232,6 +232,13 @@ impl CanonicalSchemaletDetails {
 
     fn is_nothing(&self) -> bool {
         matches!(self, CanonicalSchemaletDetails::Nothing)
+    }
+
+    pub fn as_object(&self) -> Option<&SchemaletValueObject> {
+        let Self::Value(SchemaletValue::Object(obj)) = self else {
+            return None;
+        };
+        Some(obj)
     }
 }
 
