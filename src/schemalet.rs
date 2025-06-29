@@ -128,14 +128,7 @@ pub enum SchemaletDetails {
 #[derive(Debug, Clone, Serialize)]
 pub enum SchemaletValue {
     Boolean,
-    Array {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        items: Option<SchemaRef>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        min_items: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        unique_items: Option<bool>,
-    },
+    Array(SchemaletValueArray),
     Object(SchemaletValueObject),
     String {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -272,11 +265,42 @@ pub enum State {
     Canonical(CanonicalSchemalet),
 }
 
+// TODO 6/28/2025
+// Rather than having properties, required, additionalProperties,
+// patternProperties, propertyNames, unevaluatedProperties... I think I can
+// convey the information I need with orthogonal concepts:
+// - fields: array of properties with a boolean for required
+// - more fields: array of pairs of key/value schema references
+// - extras allowed: true/false
+//
+// The idea is that I can avoid the miasma of overlapping ideas and simplify
+// type generation. Fields become fields in a struct; each value of the more
+// fields array becomes a flattened structure; extras allowed informs serde
+// policy regarding additional fields.
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SchemaletValueObject {
     pub properties: BTreeMap<String, SchemaRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    // NB in this context, there is no distinction between "additional" and
+    // "unevaluated" properties because we've already resolved any schema
+    // merges.
     pub additional_properties: Option<SchemaRef>,
+    // TODO: propertyNames, patternProperties, required
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct SchemaletValueArray {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<SchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix_items: Option<Vec<SchemaRef>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unique_items: Option<bool>,
 }
 
 impl Schemalet {
@@ -898,11 +922,7 @@ fn schemalet_to_type_value(
 ) {
     match value {
         SchemaletValue::Boolean => todo!(),
-        SchemaletValue::Array {
-            items,
-            min_items,
-            unique_items,
-        } => todo!(),
+        SchemaletValue::Array(array) => todo!(),
 
         SchemaletValue::Object(object) => schemalet_to_type_value_object(metadata, object, graph),
         SchemaletValue::String { pattern, format } => todo!(),
@@ -1079,11 +1099,7 @@ fn untagged_variant(
             let xxx = schemalet_to_type(variant_schema, graph);
             todo!()
         }
-        CanonicalSchemaletDetails::Value(SchemaletValue::Array {
-            items,
-            min_items,
-            unique_items,
-        }) => {
+        CanonicalSchemaletDetails::Value(SchemaletValue::Array(array)) => {
             // TODO we're going to need to do something here for tuples...
             todo!()
         }
@@ -1242,11 +1258,7 @@ impl Serialize for ThingPrinter<'_> {
                 SchemaletValue::Boolean => {
                     map.serialize_entry("type", "boolean")?;
                 }
-                SchemaletValue::Array {
-                    items,
-                    min_items,
-                    unique_items,
-                } => {
+                SchemaletValue::Array(array) => {
                     map.serialize_entry("type", "array")?;
                     // TODO
                 }

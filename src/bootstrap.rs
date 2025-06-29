@@ -7,7 +7,12 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{bool_or::ObjectOrBool, ir, ir2, schemalet, Bundle, Document, Error, Resolved};
+use crate::{
+    bool_or::ObjectOrBool,
+    ir, ir2,
+    schemalet::{self, SchemaletValueArray},
+    Bundle, Document, Error, Resolved,
+};
 
 type SchemaOrBool = ObjectOrBool<Schema>;
 
@@ -1293,11 +1298,14 @@ impl Schema {
                     None => None,
                 };
                 let schema_ref = id.partial("array");
-                let ir = schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Array {
-                    items,
-                    min_items: self.min_items,
-                    unique_items: self.unique_items,
-                });
+                let ir = schemalet::SchemaletDetails::Value(schemalet::SchemaletValue::Array(
+                    SchemaletValueArray {
+                        items,
+                        min_items: self.min_items,
+                        unique_items: self.unique_items,
+                        ..Default::default()
+                    },
+                ));
                 Ok((schema_ref, ir))
             }
             SimpleType::Boolean => {

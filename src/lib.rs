@@ -25,6 +25,7 @@ pub mod convert;
 pub mod ir;
 pub mod ir2;
 mod loader;
+pub mod namespace;
 pub mod schemalet;
 pub mod typespace;
 pub mod typify_draft;

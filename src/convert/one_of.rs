@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use crate::{
     convert::Converter,
@@ -44,7 +44,7 @@ impl Converter {
         println!("{}", serde_json::to_string_pretty(&proto_variants).unwrap());
 
         let ty = if let Some(ty) = self.maybe_externally_tagged_enum(metadata, &proto_variants) {
-            todo!()
+            ty
         } else {
             // TODO ... adjacent and internal
             self.untagged_enum(metadata, &proto_variants)
@@ -57,38 +57,80 @@ impl Converter {
         &self,
         metadata: &SchemaletMetadata,
         proto_variants: &[ProtoVariant],
-    ) -> Option<()> {
+    ) -> Option<Type<SchemaRef>> {
         let variants = proto_variants
             .iter()
             .map(|proto| match &proto.schemalet.details {
                 CanonicalSchemaletDetails::Anything => None,
                 CanonicalSchemaletDetails::Nothing => None,
-                CanonicalSchemaletDetails::Constant(value) => Some(ProtoVariantExternal {
-                    proto,
+                CanonicalSchemaletDetails::Constant(value) => Some(vec![ProtoVariantExternal {
+                    proto: Cow::Borrowed(proto),
                     kind: ProtoVariantExternalKind::Simple(value.as_str()?.to_string()),
-                }),
+                }]),
                 CanonicalSchemaletDetails::Reference(_) => {
                     unreachable!("we should have already eliminated this possibility")
                 }
-                CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
-                    // TODO check for the result of an enum: ["foo", "bar"]
-                    todo!();
-                }
+                CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => subschemas
+                    .iter()
+                    .map(|id| {
+                        let ss = self.resolve(id);
+
+                        if let CanonicalSchemaletDetails::Constant(value) = &ss.details {
+                            Some(ProtoVariantExternal {
+                                proto: Cow::Owned(ProtoVariant {
+                                    id,
+                                    schemalet: ss,
+                                    name: None,
+                                    description: None,
+                                }),
+                                kind: ProtoVariantExternalKind::Simple(value.as_str()?.to_string()),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Option<Vec<_>>>(),
                 CanonicalSchemaletDetails::Value(SchemaletValue::Object(
                     // TODO more checks?
                     // TODO required!
                     SchemaletValueObject { properties, .. },
                 )) if properties.len() == 1 => {
                     let (name, schema_ref) = properties.iter().next().unwrap().clone();
-                    Some(ProtoVariantExternal {
-                        proto,
+                    Some(vec![ProtoVariantExternal {
+                        proto: Cow::Borrowed(proto),
                         kind: ProtoVariantExternalKind::Typed(name.clone(), schema_ref),
-                    })
+                    }])
                 }
                 CanonicalSchemaletDetails::Value(_) => None,
             })
-            .collect::<Option<Vec<_>>>()?;
-        todo!()
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .map(|ProtoVariantExternal { proto, kind }| {
+                match kind {
+                    ProtoVariantExternalKind::Simple(variant_name) => EnumVariant {
+                        variant_name,
+                        description: proto.description.clone(),
+                        details: VariantDetails::Simple,
+                    },
+                    ProtoVariantExternalKind::Typed(variant_name, schema_ref) => todo!(),
+                }
+                // todo!();
+                // EnumVariant {
+                //     variant_name,
+                //     description: proto.description.clone(),
+                //     details: (),
+                // }
+            })
+            .collect::<Vec<_>>();
+
+        Some(Type::Enum(TypeEnum {
+            description: metadata.description.clone(),
+            default: None,
+            tag_type: EnumTagType::External,
+            variants: variants,
+            deny_unknown_fields: false,
+        }))
     }
 
     fn untagged_enum(
@@ -146,7 +188,6 @@ impl Converter {
             .collect::<Vec<_>>();
 
         Type::Enum(TypeEnum {
-            name: "abc".to_string(),
             description: metadata.description.clone(),
             default: None,
             tag_type: EnumTagType::Untagged,
@@ -187,7 +228,7 @@ fn maybe_kind_names(proto_variants: &[ProtoVariant]) -> Option<Vec<String>> {
     })
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 struct ProtoVariant<'a> {
     id: &'a SchemaRef,
     schemalet: &'a CanonicalSchemalet,
@@ -198,7 +239,7 @@ struct ProtoVariant<'a> {
 }
 
 struct ProtoVariantExternal<'a> {
-    proto: &'a ProtoVariant<'a>,
+    proto: Cow<'a, ProtoVariant<'a>>,
     kind: ProtoVariantExternalKind<'a>,
 }
 

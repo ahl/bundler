@@ -1,9 +1,10 @@
+use quote::format_ident;
+use unicode_ident::is_xid_continue;
+
 use crate::{
-    convert::Converter,
+    convert::{Converter, GottenStuff},
     schemalet::{SchemaRef, SchemaletMetadata, SchemaletValueObject},
-    typespace::{
-        StructProperty, StructPropertySerialization, StructPropertyState, Type, TypeStruct,
-    },
+    typespace::{StructProperty, StructPropertySerde, StructPropertyState, Type, TypeStruct},
 };
 
 impl Converter {
@@ -25,29 +26,59 @@ impl Converter {
             additional_properties,
         } = object;
 
+        let prop_names = properties
+            .keys()
+            .map(|prop_name| tmp_sanitize(prop_name))
+            .collect::<Vec<_>>();
+
         let properties = properties
             .iter()
-            .map(|(prop_name, prop_id)| {
+            .zip(prop_names)
+            .map(|((prop_name, prop_id), new_prop_name)| {
+                let GottenStuff {
+                    id,
+                    schemalet: _,
+                    description,
+                    title: _,
+                } = self.resolve_and_get_stuff(prop_id);
+
+                let rust_name = format_ident!("{new_prop_name}");
+                let json_name = if *prop_name == new_prop_name {
+                    StructPropertySerde::None
+                } else {
+                    StructPropertySerde::Rename(prop_name.clone())
+                };
                 StructProperty {
-                    // TODO this is wrong
-                    rust_name: prop_name.clone(),
-                    json_name: StructPropertySerialization::Json(prop_name.clone()),
+                    rust_name,
+                    json_name,
                     // TODO need to figure this out
                     state: StructPropertyState::Optional,
                     // TODO maybe a helper to pull out descriptions for property meta?
-                    description: None,
-                    type_id: prop_id.clone(),
+                    description,
+                    type_id: id.clone(),
                 }
             })
             .collect();
 
         TypeStruct {
-            name: "xxx".to_string(),
             description: metadata.description.clone(),
             default: None,
             properties,
-            // TODO
             deny_unknown_fields: false,
         }
     }
+}
+
+fn tmp_sanitize(prop_name: &str) -> String {
+    use heck::ToSnakeCase;
+
+    let x = prop_name.replace(|ch| !is_xid_continue(ch), "-");
+
+    let mut out = x.to_snake_case();
+
+    if syn::parse_str::<syn::Ident>(&out).is_err() {
+        out.push('_');
+    }
+
+    out
 }

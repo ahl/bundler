@@ -1,8 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bundler::{
     ir, ir2,
     schemalet::{schemalet_print, schemalet_to_type, to_schemalets},
+    typespace::{Typespace, TypespaceBuilder},
     xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
 };
 
@@ -497,23 +498,32 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // Making good progress, but also kicking over a bunch of stuff along the way.
 // I'm really trying to put my head down to get some code generated and then go
 // back and think about all the problems. Some notes:
-
+//
 // [ ] I should get really robust about the preservation of metadata and make
 //     it clear in the canonical output how that will be represented.
-
+//
 // [ ] I need to figure out the actual mechanism for resolving name conflicts
 //     and injecting new names. Like: how do we detect a name conflict? How do
 //     we report it to the user? What does the user do specifically to fix it?
-
+//
 // [ ] I need to preserve extensions and I have no idea how I'm going to do
 //     that. Maybe I **don't** need to at all because I can always go back to
 //     the original schema to see if they exist? But How does that work when I
 //     merge schemas?
-
+//
 // [ ] How do I know when a type is going to have its own name or not? This
 //     seems most relevant for enum struct-type variants, but it seems like we
 //     could also do something for tuple fields (i.e. inline them if there
 //     isn't going to be some good name).
+//
+// I'd just note the things that this does maybe already address or is on the
+// way to addressing:
+// - I think I can be a lot more robust and efficient wrt merging
+// - I am keeping around a bunch of breadcrumbs that should let me make better
+//   errors (I just need to figure out the details)
+// - Multiple files
+// - Multiple JSON Schema specifications
+// - Generalized references (i.e. not just to $defs)
 
 fn schemalet(bundle: Bundle, context: bundler::Context) {
     let root_id = bundler::schemalet::SchemaRef::Id(format!("{}#", context.location));
@@ -658,15 +668,37 @@ fn typify(
     root_id: bundler::schemalet::SchemaRef,
 ) {
     schemalet_print(&canonical, &root_id);
+
     let schemalet = canonical.get(&root_id).unwrap();
 
     println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
 
+    let mut typespace = TypespaceBuilder::<bundler::schemalet::SchemaRef>::default();
+
     let mut converter = bundler::convert::Converter::new(canonical);
 
-    let ty = converter.convert(&root_id);
+    let mut work = VecDeque::from([root_id.clone()]);
 
-    println!("{:#?}", ty);
+    let mut done = BTreeSet::<bundler::schemalet::SchemaRef>::new();
 
-    todo!()
+    while let Some(id) = work.pop_front() {
+        if done.contains(&id) {
+            continue;
+        }
+        done.insert(id.clone());
+
+        println!("id = {id}");
+        let typ = converter.convert(&id);
+
+        typespace.insert(id.clone(), typ.clone());
+
+        println!("{:#?}", &typ);
+
+        work.extend(typ.children());
+    }
+
+    let out = typespace.render();
+    println!("file\n{out}");
+
+    todo!("done?");
 }

@@ -1,3 +1,4 @@
+mod array;
 mod object;
 mod one_of;
 
@@ -37,11 +38,42 @@ impl Converter {
         }
     }
 
+    pub fn resolve_and_get_stuff<'a>(&'a self, mut id: &'a SchemaRef) -> GottenStuff<'a> {
+        let mut title = None;
+        let mut description = None;
+        loop {
+            let schemalet = self.get(id);
+
+            let CanonicalSchemaletDetails::Reference(next_id) = &schemalet.details else {
+                return GottenStuff {
+                    id,
+                    schemalet,
+                    description,
+                    title,
+                };
+            };
+
+            if let (None, Some(new_title)) = (&title, &schemalet.metadata.title) {
+                title = Some(new_title.clone());
+            }
+            if let (None, Some(new_description)) = (&description, &schemalet.metadata.description) {
+                description = Some(new_description.clone());
+            }
+
+            id = next_id;
+        }
+    }
+
     pub fn convert(&mut self, id: &SchemaRef) -> Type<SchemaRef> {
-        let CanonicalSchemalet { metadata, details } = self.get(id);
+        let schemalet = self.get(id);
+        println!(
+            "converting {}",
+            serde_json::to_string_pretty(schemalet).unwrap(),
+        );
+        let CanonicalSchemalet { metadata, details } = schemalet;
 
         match details {
-            CanonicalSchemaletDetails::Anything => todo!(),
+            CanonicalSchemaletDetails::Anything => Type::JsonValue,
             CanonicalSchemaletDetails::Nothing => todo!(),
             CanonicalSchemaletDetails::Constant(_) => todo!(),
             CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
@@ -49,25 +81,50 @@ impl Converter {
                 self.convert_one_of(metadata, subschemas)
             }
 
-            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean) => todo!(),
-            CanonicalSchemaletDetails::Value(SchemaletValue::Array {
-                items,
-                min_items,
-                unique_items,
-            }) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::Boolean) => Type::Boolean,
+            CanonicalSchemaletDetails::Value(SchemaletValue::Array(array)) => {
+                self.convert_array(metadata, array)
+            }
             CanonicalSchemaletDetails::Value(SchemaletValue::Object(object)) => {
                 self.convert_object(metadata, object)
             }
-            CanonicalSchemaletDetails::Value(SchemaletValue::String { pattern, format }) => todo!(),
+            CanonicalSchemaletDetails::Value(SchemaletValue::String { pattern, format }) => {
+                self.convert_string(metadata, pattern.as_ref(), format.as_ref())
+            }
             CanonicalSchemaletDetails::Value(SchemaletValue::Integer {
                 minimum,
                 exclusive_minimum,
-            }) => todo!(),
+            }) => {
+                // TODO not handling this well ...
+                Type::Float("i64".to_string())
+            }
             CanonicalSchemaletDetails::Value(SchemaletValue::Number {
                 minimum,
                 exclusive_minimum,
-            }) => todo!(),
+            }) => {
+                // TODO not handling this well ...
+                Type::Float("f64".to_string())
+            }
             CanonicalSchemaletDetails::Value(SchemaletValue::Null) => todo!(),
         }
     }
+
+    fn convert_string(
+        &self,
+        metadata: &crate::schemalet::SchemaletMetadata,
+        pattern: Option<&String>,
+        format: Option<&String>,
+    ) -> Type<SchemaRef> {
+        match (pattern, format) {
+            (_, _) => Type::String,
+            // _ => panic!("{:?} {:?}", pattern, format),
+        }
+    }
+}
+
+pub struct GottenStuff<'a> {
+    id: &'a SchemaRef,
+    schemalet: &'a CanonicalSchemalet,
+    description: Option<String>,
+    title: Option<String>,
 }
