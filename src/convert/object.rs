@@ -24,7 +24,10 @@ impl Converter {
         let SchemaletValueObject {
             properties,
             additional_properties,
+            ..
         } = object;
+
+        assert!(additional_properties.is_none());
 
         let prop_names = properties
             .keys()

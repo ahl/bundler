@@ -278,15 +278,40 @@ pub enum State {
 // fields array becomes a flattened structure; extras allowed informs serde
 // policy regarding additional fields.
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Default, Debug, Clone, Serialize)]
 pub struct SchemaletValueObject {
     pub properties: BTreeMap<String, SchemaRef>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub required: Vec<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
-    // NB in this context, there is no distinction between "additional" and
-    // "unevaluated" properties because we've already resolved any schema
-    // merges.
     pub additional_properties: Option<SchemaRef>,
-    // TODO: propertyNames, patternProperties, required
+
+    /// Implied that it's a string
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property_names: Option<SchemaRef>,
+
+    /// Map from a regex to a schema
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub pattern_properties: BTreeMap<String, SchemaRef>,
+}
+
+pub struct CanonicalSchemaletValueObject {
+    pub fixed_properties: BTreeMap<String, CanonicalSchemaletValueObjectFixed>,
+
+    /// Note that these may be overlapping
+    pub more_properties: Vec<CanonicalSchemaletValueObjectMore>,
+
+    pub allow_unknown: bool,
+}
+struct CanonicalSchemaletValueObjectFixed {
+    pub id: SchemaRef,
+    pub required: bool,
+}
+struct CanonicalSchemaletValueObjectMore {
+    pub key: SchemaRef,
+    pub value: SchemaRef,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -817,6 +842,7 @@ fn merge_two_objects(
     CanonicalSchemaletDetails::Value(SchemaletValue::Object(SchemaletValueObject {
         properties,
         additional_properties,
+        ..Default::default()
     }))
 }
 
@@ -946,6 +972,7 @@ fn schemalet_to_type_value_object(
     let SchemaletValueObject {
         properties,
         additional_properties,
+        ..
     } = object;
 
     if properties.is_empty() {
@@ -1267,6 +1294,7 @@ impl Serialize for ThingPrinter<'_> {
                     let SchemaletValueObject {
                         properties,
                         additional_properties,
+                        ..
                     } = schemalet_value_object;
 
                     let properties = properties

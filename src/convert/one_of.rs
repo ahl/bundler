@@ -205,11 +205,14 @@ impl Converter {
         // TODO or we somehow defer that decision to the Typespace's finalize step?
         let object = schemalet.as_object()?;
 
-        let obj_ty = self.convert_object_to_struct(&schemalet.metadata, object);
+        let typ = self.convert_object(&schemalet.metadata, object);
+        let Type::Struct(struct_ty) = typ else {
+            return None;
+        };
 
-        println!("{:#?}", obj_ty);
+        println!("{:#?}", struct_ty);
 
-        Some(obj_ty.properties)
+        Some(struct_ty.properties)
     }
 }
 

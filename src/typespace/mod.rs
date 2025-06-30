@@ -33,7 +33,7 @@ impl<Id> Default for TypespaceBuilder<Id> {
 // these types aren't just "builders"
 impl<Id> TypespaceBuilder<Id>
 where
-    Id: Ord + Display,
+    Id: Ord + Display + std::fmt::Debug,
 {
     pub fn render(&self) -> String {
         let types = self.types.values().map(|typ| {
@@ -134,7 +134,10 @@ where
                         }
                     }
                 }
-                Type::Struct(type_struct) => quote! {},
+                Type::Struct(type_struct) => {
+                    println!("{:#?}", type_struct);
+                    todo!()
+                }
                 _ => quote! {},
             }
         });
@@ -154,7 +157,12 @@ where
             // Type::Native(_) => todo!(),
             // Type::Option(_) => todo!(),
             // Type::Box(_) => todo!(),
-            // Type::Vec(_) => todo!(),
+            Type::Vec(inner_id) => {
+                let inner_ident = self.render_ident(inner_id);
+                quote! {
+                    ::std::vec::Vec<#inner_ident>
+                }
+            }
             // Type::Map(_, _) => todo!(),
             // Type::Set(_) => todo!(),
             // Type::Array(_, _) => todo!(),

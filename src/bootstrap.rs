@@ -1353,6 +1353,7 @@ impl Schema {
                     schemalet::SchemaletValue::Object(schemalet::SchemaletValueObject {
                         properties,
                         additional_properties,
+                        ..Default::default()
                     }),
                 );
                 let sref = id.partial("object");
