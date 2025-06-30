@@ -5,7 +5,9 @@ mod one_of;
 use std::collections::BTreeMap;
 
 use crate::{
-    schemalet::{CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletValue},
+    schemalet::{
+        CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletDetails, SchemaletValue,
+    },
     typespace::{Type, TypespaceBuilder},
 };
 
@@ -77,6 +79,7 @@ impl Converter {
             CanonicalSchemaletDetails::Nothing => todo!(),
             CanonicalSchemaletDetails::Constant(_) => todo!(),
             CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+            CanonicalSchemaletDetails::Note(schema_ref) => todo!(),
             CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
                 self.convert_one_of(metadata, subschemas)
             }

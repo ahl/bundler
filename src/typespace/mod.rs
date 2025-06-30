@@ -7,7 +7,10 @@ pub use type_common::*;
 pub use type_enum::*;
 pub use type_struct::*;
 
-use std::{collections::BTreeMap, fmt::Display};
+use std::{
+    collections::{btree_map::Entry, BTreeMap},
+    fmt::Display,
+};
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -16,6 +19,8 @@ use quote::{format_ident, quote};
 // I think I need a builder form e.g. of an enum or struct and then the
 // finalized form which probably is basically what typify shows today in its
 // public interface.
+
+pub trait TypeId: Ord + Display + std::fmt::Debug {}
 
 pub struct TypespaceBuilder<Id> {
     types: BTreeMap<Id, Type<Id>>,
@@ -33,7 +38,7 @@ impl<Id> Default for TypespaceBuilder<Id> {
 // these types aren't just "builders"
 impl<Id> TypespaceBuilder<Id>
 where
-    Id: Ord + Display + std::fmt::Debug,
+    Id: TypeId,
 {
     pub fn render(&self) -> String {
         let types = self.types.values().map(|typ| {
@@ -182,14 +187,23 @@ pub struct Typespace<Id> {
     types: BTreeMap<Id, Type<Id>>,
 }
 
-impl<Id> TypespaceBuilder<Id> {
+impl<Id> TypespaceBuilder<Id>
+where
+    Id: TypeId,
+{
     pub fn insert(&mut self, id: Id, typ: Type<Id>)
     where
         Id: Ord,
     {
-        // TODO do some validation of types, e.g. that variant names are
-        // unique.
-        self.types.insert(id, typ);
+        match self.types.entry(id) {
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(typ);
+            }
+            Entry::Occupied(occupied_entry) => {
+                let key = occupied_entry.key();
+                todo!()
+            }
+        }
     }
 
     pub fn finalize(self) -> Result<Typespace<Id>, ()> {

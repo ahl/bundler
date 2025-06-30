@@ -664,7 +664,7 @@ fn schemalet(bundle: Bundle, context: bundler::Context) {
 }
 
 fn typify(
-    canonical: BTreeMap<bundler::schemalet::SchemaRef, bundler::schemalet::CanonicalSchemalet>,
+    mut canonical: BTreeMap<bundler::schemalet::SchemaRef, bundler::schemalet::CanonicalSchemalet>,
     root_id: bundler::schemalet::SchemaRef,
 ) {
     schemalet_print(&canonical, &root_id);
@@ -674,6 +674,19 @@ fn typify(
     println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
 
     let mut typespace = TypespaceBuilder::<bundler::schemalet::SchemaRef>::default();
+
+    canonical.insert(
+        bundler::schemalet::SchemaRef::Internal("string".to_string()),
+        bundler::schemalet::CanonicalSchemalet {
+            metadata: Default::default(),
+            details: bundler::schemalet::CanonicalSchemaletDetails::Value(
+                bundler::schemalet::SchemaletValue::String {
+                    pattern: None,
+                    format: None,
+                },
+            ),
+        },
+    );
 
     let mut converter = bundler::convert::Converter::new(canonical);
 

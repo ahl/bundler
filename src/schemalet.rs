@@ -6,7 +6,7 @@ use std::{
 
 use serde::{ser::SerializeMap, Serialize};
 
-use crate::{bootstrap, Resolved};
+use crate::{bootstrap, typespace::TypeId, Resolved};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SchemaRef {
@@ -19,7 +19,10 @@ pub enum SchemaRef {
         yes: Box<SchemaRef>,
         no: Vec<SchemaRef>,
     },
+    Internal(String),
 }
+
+impl TypeId for SchemaRef {}
 
 impl SchemaRef {
     pub fn partial(&self, part: &str) -> Self {
@@ -66,6 +69,10 @@ impl Display for SchemaRef {
                     f.write_str("\n")?;
                 }
                 f.write_str("]")
+            }
+            SchemaRef::Internal(s) => {
+                f.write_str("internal@")?;
+                f.write_str(s)
             }
         }
     }
@@ -210,6 +217,8 @@ impl CanonicalSchemaletDetails {
             CanonicalSchemaletDetails::Nothing => None,
             // TODO maybe we should handle this differently?
             CanonicalSchemaletDetails::Reference(_) => todo!(),
+            // TODO ^^ Maybe this is a different place we should handle it??
+            CanonicalSchemaletDetails::Note(_) => todo!(),
             CanonicalSchemaletDetails::ExclusiveOneOf { typ, .. } => typ.clone(),
             CanonicalSchemaletDetails::Value(value) => match value {
                 SchemaletValue::Boolean => Some(SchemaletType::Boolean),
@@ -247,6 +256,10 @@ pub enum CanonicalSchemaletDetails {
     // has a comment and so does its type. We'll want to keep metadata. Typify
     // will need to deal with it by walking this linked list.
     Reference(SchemaRef),
+    // TODO 6/30/2025 What I'm going to do is use "Reference" to indicate some
+    // indirection in the original schema and <whatever this is called> to
+    // indicate merely and internal node.
+    Note(SchemaRef),
     ExclusiveOneOf {
         /// Cached type iff all subschemas share a single type.
         typ: Option<SchemaletType>,
@@ -293,8 +306,8 @@ pub struct SchemaletValueObject {
     pub property_names: Option<SchemaRef>,
 
     /// Map from a regex to a schema
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub pattern_properties: BTreeMap<String, SchemaRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_properties: Option<BTreeMap<String, SchemaRef>>,
 }
 
 pub struct CanonicalSchemaletValueObject {
@@ -412,7 +425,7 @@ impl Schemalet {
                             let xxx = subschemas.into_iter().next().unwrap().0;
                             CanonicalSchemalet {
                                 metadata,
-                                details: CanonicalSchemaletDetails::Reference(xxx),
+                                details: CanonicalSchemaletDetails::Note(xxx),
                             }
                         }
 
@@ -518,14 +531,12 @@ fn merge_yes_no(
             },
             Default::default(),
         ),
-
         CanonicalSchemaletDetails::Constant(value) => todo!(),
         CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
-
+        CanonicalSchemaletDetails::Note(schema_ref) => todo!(),
         CanonicalSchemaletDetails::ExclusiveOneOf { typ, subschemas } => {
             todo!()
         }
-
         CanonicalSchemaletDetails::Value(schemalet_value) => {
             todo!()
         }
@@ -932,6 +943,7 @@ pub fn schemalet_to_type(
         CanonicalSchemaletDetails::Nothing => todo!(),
         CanonicalSchemaletDetails::Constant(value) => todo!(),
         CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+        CanonicalSchemaletDetails::Note(schema_ref) => todo!(),
         CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => {
             schemalet_to_type_enum(&schemalet.metadata, subschemas, graph)
         }
@@ -1192,6 +1204,7 @@ fn make_variant_meta(
         }
         CanonicalSchemaletDetails::Constant(value) => todo!(),
         CanonicalSchemaletDetails::Reference(schema_ref) => todo!(),
+        CanonicalSchemaletDetails::Note(schema_ref) => todo!(),
         CanonicalSchemaletDetails::ExclusiveOneOf { .. } => {
             // Fine: we aren't going to be able to do anything interesting
             // inline in the context of this variants, so we are fine making
@@ -1270,6 +1283,9 @@ impl Serialize for ThingPrinter<'_> {
             }
             CanonicalSchemaletDetails::Reference(schema_ref) => {
                 map.serialize_entry("$ref", schema_ref)?;
+            }
+            CanonicalSchemaletDetails::Note(schema_ref) => {
+                map.serialize_entry("$note", schema_ref)?;
             }
             CanonicalSchemaletDetails::ExclusiveOneOf { typ, subschemas } => {
                 let xxx = subschemas

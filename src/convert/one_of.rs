@@ -67,7 +67,7 @@ impl Converter {
                     proto: Cow::Borrowed(proto),
                     kind: ProtoVariantExternalKind::Simple(value.as_str()?.to_string()),
                 }]),
-                CanonicalSchemaletDetails::Reference(_) => {
+                CanonicalSchemaletDetails::Reference(_) | CanonicalSchemaletDetails::Note(_) => {
                     unreachable!("we should have already eliminated this possibility")
                 }
                 CanonicalSchemaletDetails::ExclusiveOneOf { subschemas, .. } => subschemas
@@ -164,7 +164,9 @@ impl Converter {
         } else if let Some(kind_names) = maybe_kind_names(proto_variants) {
             kind_names
         } else {
-            todo!()
+            (0..proto_variants.len())
+                .map(|ii| format!("Variant{ii}"))
+                .collect()
         };
         println!("{}", serde_json::to_string_pretty(&variant_names).unwrap());
 
