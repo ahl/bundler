@@ -5,24 +5,18 @@ mod one_of;
 use std::collections::BTreeMap;
 
 use crate::{
-    schemalet::{
-        CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletDetails, SchemaletValue,
-    },
-    typespace::{Type, TypespaceBuilder},
+    schemalet::{CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletValue},
+    typespace::Type,
 };
 
 // TODO naming?
 pub struct Converter {
-    typespace: TypespaceBuilder<SchemaRef>,
     graph: BTreeMap<SchemaRef, CanonicalSchemalet>,
 }
 
 impl Converter {
     pub fn new(graph: BTreeMap<SchemaRef, CanonicalSchemalet>) -> Self {
-        Self {
-            typespace: Default::default(),
-            graph,
-        }
+        Self { graph }
     }
 
     fn get<'a>(&'a self, id: &SchemaRef) -> &'a CanonicalSchemalet {
@@ -66,7 +60,7 @@ impl Converter {
         }
     }
 
-    pub fn convert(&mut self, id: &SchemaRef) -> Type<SchemaRef> {
+    pub fn convert(&self, id: &SchemaRef) -> Type<SchemaRef> {
         let schemalet = self.get(id);
         println!(
             "converting {}",

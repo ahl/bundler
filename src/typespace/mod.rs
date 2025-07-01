@@ -8,19 +8,19 @@ pub use type_enum::*;
 pub use type_struct::*;
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
     fmt::Display,
 };
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 
 // 6/25/2025
 // I think I need a builder form e.g. of an enum or struct and then the
 // finalized form which probably is basically what typify shows today in its
 // public interface.
 
-pub trait TypeId: Ord + Display + std::fmt::Debug {}
+pub trait TypeId: Ord + Display + std::fmt::Debug + Clone {}
 
 pub struct TypespaceBuilder<Id> {
     types: BTreeMap<Id, Type<Id>>,
@@ -41,7 +41,7 @@ where
     Id: TypeId,
 {
     pub fn render(&self) -> String {
-        let types = self.types.values().map(|typ| {
+        let types = self.types.iter().map(|(id, typ)| {
             match typ {
                 Type::Enum(type_enum) => {
                     let TypeEnum {
@@ -131,7 +131,11 @@ where
                         }
                     });
 
+                    let xxx_doc_str = id.to_string();
+                    let xxx_doc = quote! { #[doc = #xxx_doc_str] };
+
                     quote! {
+                        #xxx_doc
                         #description
                         #serde
                         pub enum Unknown {
@@ -168,16 +172,23 @@ where
                     ::std::vec::Vec<#inner_ident>
                 }
             }
-            // Type::Map(_, _) => todo!(),
+            Type::Map(key_id, value_id) => {
+                let key_ident = self.render_ident(key_id);
+                let value_ident = self.render_ident(value_id);
+                quote! {
+                    ::std::btreemap::BTreeMap<#key_ident, #value_ident>
+                }
+            }
             // Type::Set(_) => todo!(),
             // Type::Array(_, _) => todo!(),
             // Type::Tuple(items) => todo!(),
             // Type::Unit => todo!(),
             Type::Boolean => quote! { boolean },
-            // Type::Integer(_) => todo!(),
-            // Type::Float(_) => todo!(),
+            Type::Integer(name) | Type::Float(name) => syn::parse_str::<syn::TypePath>(name)
+                .unwrap()
+                .to_token_stream(),
             Type::String => quote! { String },
-            // Type::JsonValue => todo!(),
+            Type::JsonValue => quote! { ::serde_json::Value },
             _ => quote! { () },
         }
     }
@@ -209,6 +220,20 @@ where
     pub fn finalize(self) -> Result<Typespace<Id>, ()> {
         let Self { types } = self;
 
+        // Build forward and backward adjacency lists.
+        let children = types
+            .iter()
+            .map(|(id, typ)| (id.clone(), typ.children()))
+            .collect::<BTreeMap<_, _>>();
+        let mut parents = BTreeMap::<Id, Vec<Id>>::new();
+
+        for (id, ch) in &children {
+            for child in ch {
+                let xxx = parents.entry(child.clone()).or_default();
+                xxx.push(id.clone());
+            }
+        }
+
         // TODO Make sure that all referenced schemas are present.
         // TODO break cycles
         // TODO resolve names
@@ -225,7 +250,6 @@ pub enum Type<Id> {
 
     Native(String),
 
-    // TODO not sure about our plan on options...
     Option(Id),
 
     Box(Id),
@@ -271,6 +295,27 @@ where
             Type::Integer(_) => Vec::new(),
             Type::Float(_) => Vec::new(),
             Type::JsonValue => Vec::new(),
+        }
+    }
+
+    pub fn contained_children_mut(&mut self) -> Vec<&mut Id> {
+        match self {
+            Type::Enum(TypeEnum { variants, .. }) => todo!(),
+            Type::Struct(TypeStruct { properties, .. }) => todo!(),
+            Type::Native(_) => todo!(),
+            Type::Option(_) => todo!(),
+            Type::Box(_) => todo!(),
+            Type::Vec(_) => todo!(),
+            Type::Map(_, _) => todo!(),
+            Type::Set(_) => todo!(),
+            Type::Array(_, _) => todo!(),
+            Type::Tuple(items) => todo!(),
+            Type::Unit => todo!(),
+            Type::Boolean => todo!(),
+            Type::Integer(_) => todo!(),
+            Type::Float(_) => todo!(),
+            Type::String => todo!(),
+            Type::JsonValue => todo!(),
         }
     }
 }
