@@ -1,12 +1,13 @@
 use crate::{
     convert::{Converter, GottenStuff},
     schemalet::{SchemaRef, SchemaletValueArray},
-    typespace::Type,
+    typespace::{NameBuilder, Type},
 };
 
 impl Converter {
     pub(crate) fn convert_array(
         &self,
+        name: NameBuilder<SchemaRef>,
         metadata: &crate::schemalet::SchemaletMetadata,
         array: &SchemaletValueArray,
     ) -> Type<SchemaRef> {

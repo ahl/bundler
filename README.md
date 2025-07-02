@@ -32,7 +32,10 @@ have a schema like this:
 
 We might say "`Foo` has to be `Ord` (or `Hash` + `Eq` depending on the set
 type). But perhaps we *only* try to implement `Ord` for types that are used in
-the context of a set. For trait propagation we would start with all the desired traits and then forward-propagate for implied-required traits and backward-poison for traits that cannot be satisfied (such as `Ord` for a `f64`).
+the context of a set. For trait propagation we would start with all the desired
+traits and then forward-propagate for implied-required traits and
+backward-poison for traits that cannot be satisfied (such as `Ord` for a
+`f64`).
 
 
 ## Extension notes

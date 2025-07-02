@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bundler::{
     ir, ir2,
+    namespace::{self, Namespace},
     schemalet::{schemalet_print, schemalet_to_type, to_schemalets},
     typespace::{Typespace, TypespaceBuilder},
     xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
@@ -688,7 +689,17 @@ fn typify(
         },
     );
 
+    // TODO 6/30/2025
+    // My thought right now on naming is to do some initial configuration of
+    // names here i.e. before doing the conversion. This would include the root
+    // schema's name, $defs, and the targets of references.
+    // It does seem like naming the root schema might suffice and would be
+    // worth trying first to stress test dependent naming. Each child should
+    // be able to have a name derived from that of its parent.
+
     let mut converter = bundler::convert::Converter::new(canonical);
+
+    converter.set_name(root_id.clone(), "SchemaRoot".to_string());
 
     let mut work = VecDeque::from([root_id.clone()]);
 
@@ -701,6 +712,7 @@ fn typify(
         done.insert(id.clone());
 
         println!("id = {id}");
+
         let typ = converter.convert(&id);
 
         typespace.insert(id.clone(), typ.clone());
@@ -712,6 +724,8 @@ fn typify(
 
     let out = typespace.render();
     println!("file\n{out}");
+
+    let typespace_final = typespace.finalize();
 
     todo!("done?");
 }

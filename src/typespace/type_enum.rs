@@ -1,7 +1,8 @@
-use crate::typespace::{JsonValue, StructProperty};
+use crate::typespace::{JsonValue, NameBuilder, StructProperty};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeEnum<Id> {
+    pub name: NameBuilder<Id>,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub tag_type: EnumTagType,
@@ -16,6 +17,13 @@ where
         self.variants
             .iter()
             .flat_map(|variant| variant.children())
+            .collect()
+    }
+
+    pub(crate) fn children_with_context(&self) -> Vec<(Id, String)> {
+        self.variants
+            .iter()
+            .flat_map(|variant| variant.children_with_context())
             .collect()
     }
 }
@@ -60,6 +68,27 @@ where
             VariantDetails::Struct(items) => {
                 items.iter().map(|prop| prop.type_id.clone()).collect()
             }
+        }
+    }
+
+    fn children_with_context(&self) -> Vec<(Id, String)> {
+        match &self.details {
+            VariantDetails::Simple => Vec::new(),
+            VariantDetails::Item(id) => vec![(id.clone(), self.variant_name.clone())],
+            VariantDetails::Tuple(items) => items
+                .iter()
+                .enumerate()
+                .map(|(ii, id)| (id.clone(), format!("{}.{}", &self.variant_name, ii)))
+                .collect(),
+            VariantDetails::Struct(items) => items
+                .iter()
+                .map(|prop| {
+                    (
+                        prop.type_id.clone(),
+                        format!("{}.{}", &self.variant_name, &prop.rust_name),
+                    )
+                })
+                .collect(),
         }
     }
 }

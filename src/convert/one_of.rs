@@ -6,12 +6,15 @@ use crate::{
         CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletMetadata,
         SchemaletValue, SchemaletValueObject,
     },
-    typespace::{EnumTagType, EnumVariant, StructProperty, Type, TypeEnum, VariantDetails},
+    typespace::{
+        EnumTagType, EnumVariant, NameBuilder, StructProperty, Type, TypeEnum, VariantDetails,
+    },
 };
 
 impl Converter {
     pub(crate) fn convert_one_of(
         &self,
+        name: NameBuilder<SchemaRef>,
         metadata: &SchemaletMetadata,
         subschemas: &[SchemaRef],
     ) -> Type<SchemaRef> {
@@ -43,11 +46,13 @@ impl Converter {
 
         println!("{}", serde_json::to_string_pretty(&proto_variants).unwrap());
 
-        let ty = if let Some(ty) = self.maybe_externally_tagged_enum(metadata, &proto_variants) {
+        let ty = if let Some(ty) =
+            self.maybe_externally_tagged_enum(name.clone(), metadata, &proto_variants)
+        {
             ty
         } else {
             // TODO ... adjacent and internal
-            self.untagged_enum(metadata, &proto_variants)
+            self.untagged_enum(name, metadata, &proto_variants)
         };
 
         ty
@@ -55,6 +60,7 @@ impl Converter {
 
     fn maybe_externally_tagged_enum(
         &self,
+        name: NameBuilder<SchemaRef>,
         metadata: &SchemaletMetadata,
         proto_variants: &[ProtoVariant],
     ) -> Option<Type<SchemaRef>> {
@@ -125,6 +131,7 @@ impl Converter {
             .collect::<Vec<_>>();
 
         Some(Type::Enum(TypeEnum {
+            name,
             description: metadata.description.clone(),
             default: None,
             tag_type: EnumTagType::External,
@@ -135,6 +142,7 @@ impl Converter {
 
     fn untagged_enum(
         &self,
+        name: NameBuilder<SchemaRef>,
         metadata: &crate::schemalet::SchemaletMetadata,
         proto_variants: &[ProtoVariant],
     ) -> Type<SchemaRef> {
@@ -190,6 +198,7 @@ impl Converter {
             .collect::<Vec<_>>();
 
         Type::Enum(TypeEnum {
+            name,
             description: metadata.description.clone(),
             default: None,
             tag_type: EnumTagType::Untagged,
@@ -207,7 +216,7 @@ impl Converter {
         // TODO or we somehow defer that decision to the Typespace's finalize step?
         let object = schemalet.as_object()?;
 
-        let typ = self.convert_object(&schemalet.metadata, object);
+        let typ = self.convert_object(NameBuilder::Unset, &schemalet.metadata, object);
         let Type::Struct(struct_ty) = typ else {
             return None;
         };

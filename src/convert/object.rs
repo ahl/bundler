@@ -4,12 +4,15 @@ use unicode_ident::is_xid_continue;
 use crate::{
     convert::{Converter, GottenStuff},
     schemalet::{SchemaRef, SchemaletMetadata, SchemaletValueObject},
-    typespace::{StructProperty, StructPropertySerde, StructPropertyState, Type, TypeStruct},
+    typespace::{
+        NameBuilder, StructProperty, StructPropertySerde, StructPropertyState, Type, TypeStruct,
+    },
 };
 
 impl Converter {
     pub(crate) fn convert_object(
         &self,
+        name: NameBuilder<SchemaRef>,
         metadata: &SchemaletMetadata,
         object: &SchemaletValueObject,
     ) -> Type<SchemaRef> {
@@ -59,6 +62,7 @@ impl Converter {
                     .collect();
 
                 Type::Struct(TypeStruct {
+                    name,
                     description: metadata.description.clone(),
                     default: None,
                     properties,

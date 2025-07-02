@@ -1,9 +1,10 @@
 use syn::Ident;
 
-use crate::typespace::JsonValue;
+use crate::typespace::{JsonValue, NameBuilder};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeStruct<Id> {
+    pub name: NameBuilder<Id>,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub properties: Vec<StructProperty<Id>>,
@@ -17,6 +18,17 @@ where
         self.properties
             .iter()
             .map(|StructProperty { type_id, .. }| type_id.clone())
+            .collect()
+    }
+
+    pub(crate) fn children_with_context(&self) -> Vec<(Id, String)> {
+        self.properties
+            .iter()
+            .map(
+                |StructProperty {
+                     rust_name, type_id, ..
+                 }| (type_id.clone(), format!("{rust_name}")),
+            )
             .collect()
     }
 }
