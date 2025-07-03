@@ -7,6 +7,7 @@ use bundler::{
     typespace::{Typespace, TypespaceBuilder},
     xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
 };
+use url::Url;
 
 fn main() {
     println!("going");
@@ -710,6 +711,22 @@ fn typify(
             continue;
         }
         done.insert(id.clone());
+
+        // TODO 7/2/2025
+        // Not sure if this is the right place to look for a name, but maybe
+        // it's okay. At this point we know that the path really is about to
+        // have a type at this location, and we don't know that any sooner.
+        // Note that we need to have something more generic than $defs and I'm
+        // not sure we're always going to apply this heuristic.
+        if let bundler::schemalet::SchemaRef::Id(path) = &id {
+            let url = Url::parse(path).unwrap();
+
+            if let Some(fragment) = url.fragment() {
+                if let Some(name) = fragment.strip_prefix("/$defs/") {
+                    converter.set_name(id.clone(), name.to_string());
+                }
+            }
+        }
 
         println!("id = {id}");
 

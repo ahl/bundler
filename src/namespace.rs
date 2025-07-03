@@ -85,9 +85,13 @@ where
             assert!(!hints.is_empty());
         }
 
+        // Start with the direct dependants of the names that we've initially
+        // resolved.
         let mut work = resolved_ids
             .iter()
-            .flat_map(|parent_id| id_to_children.get(parent_id).unwrap())
+            .inspect(|parent_id| println!("{parent_id}"))
+            .filter_map(|parent_id| id_to_children.get(parent_id))
+            .flatten()
             .collect::<VecDeque<_>>();
 
         while let Some(id) = work.pop_front() {

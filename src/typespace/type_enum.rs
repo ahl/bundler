@@ -1,4 +1,4 @@
-use crate::typespace::{JsonValue, NameBuilder, StructProperty};
+use crate::typespace::{InternalId, JsonValue, NameBuilder, StructProperty};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TypeEnum<Id> {
@@ -9,6 +9,7 @@ pub struct TypeEnum<Id> {
     pub variants: Vec<EnumVariant<Id>>,
     pub deny_unknown_fields: bool,
 }
+
 impl<Id> TypeEnum<Id>
 where
     Id: Clone,

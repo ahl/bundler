@@ -10,6 +10,18 @@ pub struct TypeStruct<Id> {
     pub properties: Vec<StructProperty<Id>>,
     pub deny_unknown_fields: bool,
 }
+
+// pub struct TypeStructBuilder<Id> {
+//     pub description: Option<String>,
+//     pub default: Option<JsonValue>,
+//     pub properties: Vec<TypeStructPropertyBuilder<Id>>,
+//     pub deny_unknown_fields: bool,
+// }
+// pub struct TypeStructPropertyBuilder<Id> {
+//     pub rust_name: String,
+//     pub json_name: Struct
+// }
+
 impl<Id> TypeStruct<Id>
 where
     Id: Clone,

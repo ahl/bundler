@@ -37,6 +37,33 @@ pub(crate) enum NameBuilderHint<Id> {
 
 pub trait TypeId: Ord + Display + std::fmt::Debug + Clone {}
 
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub(crate) enum InternalId<Id> {
+    Id(Id),
+    Box(Id),
+}
+
+impl<Id> From<Id> for InternalId<Id> {
+    fn from(id: Id) -> Self {
+        Self::Id(id)
+    }
+}
+
+impl<Id> Display for InternalId<Id>
+where
+    Id: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InternalId::Id(id) => id.fmt(f),
+            InternalId::Box(id) => {
+                f.write_str("box -> ")?;
+                id.fmt(f)
+            }
+        }
+    }
+}
+
 pub struct TypespaceBuilder<Id> {
     types: BTreeMap<Id, Type<Id>>,
 }
@@ -224,7 +251,7 @@ where
     {
         match self.types.entry(id) {
             Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(typ);
+                vacant_entry.insert(typ.into());
             }
             Entry::Occupied(occupied_entry) => {
                 let key = occupied_entry.key();
@@ -234,6 +261,13 @@ where
     }
 
     pub fn finalize(self) -> Result<Typespace<Id>, ()> {
+        // Basic steps:
+        // 1. Construct the parent and child adjacency lists
+        // 2. Figure out names for all types that need them
+        // 3. Break containment cycles with Box types
+        // 4. Propagate trait impls
+        // 5. Type-specific finalization
+
         let Self { mut types } = self;
 
         // TODO 7/2/2025
@@ -245,10 +279,13 @@ where
             .collect::<BTreeMap<_, _>>();
 
         // Build forward and backward adjacency lists.
-        let mut id_to_parents = BTreeMap::<Id, Vec<Id>>::new();
+        let mut id_to_parents = BTreeMap::<_, Vec<_>>::new();
 
         for (id, children) in &id_to_children {
             for child_id in children {
+                // Ensure that all referenced types exist
+                assert!(types.contains_key(child_id));
+
                 id_to_parents
                     .entry(child_id.clone())
                     .or_default()
@@ -256,6 +293,7 @@ where
             }
         }
 
+        // Figure out names for the types that need names.
         let mut work = VecDeque::new();
 
         for (id, typ) in &types {
@@ -269,7 +307,7 @@ where
             }
         }
 
-        let mut name_hints = BTreeMap::<Id, Vec<NameBuilderHint<Id>>>::new();
+        let mut name_hints = BTreeMap::<_, Vec<NameBuilderHint<_>>>::new();
 
         while let Some((parent_id, child_id, child_sigil)) = work.pop_front() {
             let child_typ = types.get(&child_id).unwrap();
@@ -297,10 +335,6 @@ where
                 typ.add_name_hints(hints);
             }
         });
-
-        // // for typ in types.values() {
-        // //     println!("{:#?}", typ);
-        // // }
 
         let mut namespace = Namespace::default();
 
@@ -352,7 +386,6 @@ pub enum Type<Id> {
     Struct(TypeStruct<Id>),
 
     Native(String),
-
     Option(Id),
 
     Box(Id),
@@ -371,6 +404,30 @@ pub enum Type<Id> {
     String,
     /// serde_json::Value which we also handle specially.
     JsonValue,
+}
+
+impl<Id> From<Type<Id>> for Type<InternalId<Id>> {
+    fn from(value: Type<Id>) -> Self {
+        match value {
+            Type::Enum(type_enum) => todo!(),
+            Type::Struct(type_struct) => todo!(),
+
+            Type::Native(s) => Type::Native(s),
+            Type::Option(id) => Type::Option(id.into()),
+            Type::Box(id) => todo!(),
+            Type::Vec(id) => todo!(),
+            Type::Map(key_id, value_id) => todo!(),
+            Type::Set(id) => todo!(),
+            Type::Array(id, len) => todo!(),
+            Type::Tuple(items) => todo!(),
+            Type::Unit => todo!(),
+            Type::Boolean => todo!(),
+            Type::Integer(name) => todo!(),
+            Type::Float(name) => todo!(),
+            Type::String => todo!(),
+            Type::JsonValue => todo!(),
+        }
+    }
 }
 
 impl<Id> Type<Id>
