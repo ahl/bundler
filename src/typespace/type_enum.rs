@@ -1,6 +1,9 @@
-use crate::typespace::{InternalId, JsonValue, NameBuilder, StructProperty};
+use crate::{
+    namespace::Name,
+    typespace::{InternalId, JsonValue, NameBuilder, StructProperty},
+};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub struct TypeEnum<Id> {
     pub name: NameBuilder<Id>,
     pub description: Option<String>,
@@ -8,12 +11,38 @@ pub struct TypeEnum<Id> {
     pub tag_type: EnumTagType,
     pub variants: Vec<EnumVariant<Id>>,
     pub deny_unknown_fields: bool,
+
+    pub built: Option<TypeEnumBuilt<Id>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TypeEnumBuilt<Id> {
+    pub name: Name<Id>,
 }
 
 impl<Id> TypeEnum<Id>
 where
     Id: Clone,
 {
+    pub fn new(
+        name: NameBuilder<Id>,
+        description: Option<String>,
+        default: Option<JsonValue>,
+        tag_type: EnumTagType,
+        variants: Vec<EnumVariant<Id>>,
+        deny_unknown_fields: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default,
+            tag_type,
+            variants,
+            deny_unknown_fields,
+            built: None,
+        }
+    }
+
     pub(crate) fn children(&self) -> Vec<Id> {
         self.variants
             .iter()
@@ -51,7 +80,8 @@ pub enum EnumTagType {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EnumVariant<Id> {
-    pub variant_name: String,
+    pub rust_name: String,
+    pub rename: Option<String>,
     // TODO need a name for serialization?
     // pub json_name: String,
     pub description: Option<String>,
@@ -75,18 +105,18 @@ where
     fn children_with_context(&self) -> Vec<(Id, String)> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
-            VariantDetails::Item(id) => vec![(id.clone(), self.variant_name.clone())],
+            VariantDetails::Item(id) => vec![(id.clone(), self.rust_name.clone())],
             VariantDetails::Tuple(items) => items
                 .iter()
                 .enumerate()
-                .map(|(ii, id)| (id.clone(), format!("{}.{}", &self.variant_name, ii)))
+                .map(|(ii, id)| (id.clone(), format!("{}.{}", &self.rust_name, ii)))
                 .collect(),
             VariantDetails::Struct(items) => items
                 .iter()
                 .map(|prop| {
                     (
                         prop.type_id.clone(),
-                        format!("{}.{}", &self.variant_name, &prop.rust_name),
+                        format!("{}.{}", &self.rust_name, &prop.rust_name),
                     )
                 })
                 .collect(),

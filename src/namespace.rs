@@ -2,10 +2,12 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, VecDeque},
     marker::PhantomData,
-    ops::DerefMut,
     rc::Rc,
 };
 
+use heck::ToPascalCase;
+
+#[derive(Debug)]
 pub enum Error<Id> {
     MissingHints(Vec<Id>),
 }
@@ -64,7 +66,7 @@ where
                 match hint {
                     NameInnerHint::Fixed(s) => {
                         assert!(!resolved_names.contains(s));
-                        name.replace(NameInner::Resolved(s.clone()));
+                        name.replace(NameInner::Resolved(s.to_pascal_case()));
                         resolved_names.insert(s.clone());
                         resolved_ids.insert(id.clone());
                         break;
@@ -123,6 +125,7 @@ where
                 let parent_name = names.get(parent).unwrap().borrow().as_resolved();
 
                 let new_name = format!("{}{}", parent_name, addition);
+                let new_name = new_name.to_pascal_case();
 
                 if !resolved_names.contains(&new_name) {
                     resolved_names.insert(new_name.clone());
@@ -188,7 +191,7 @@ impl<Id> NameInner<Id> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Name<Id> {
     id: Id,
     inner: Rc<RefCell<NameInner<Id>>>,

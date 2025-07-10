@@ -18,14 +18,14 @@ use quote::{format_ident, quote, ToTokens};
 use crate::namespace::Namespace;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum NameBuilder<Id> {
+pub enum NameBuilder<Id> {
     Unset,
     Fixed(String),
     Hints(Vec<NameBuilderHint<Id>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum NameBuilderHint<Id> {
+pub enum NameBuilderHint<Id> {
     Title(String),
     Parent(Id, String),
 }
@@ -63,6 +63,225 @@ where
         }
     }
 }
+pub struct Typespace<Id> {
+    types: BTreeMap<Id, Type<Id>>,
+}
+// TODO this impl is intended just for goofing around. I'm sort of wondering if
+// these types aren't just "builders"
+impl<Id> Typespace<Id>
+where
+    Id: TypeId,
+{
+    pub fn render(&self) -> String {
+        let types = self.types.iter().map(|(id, typ)| {
+            match typ {
+                Type::Enum(type_enum) => {
+                    let TypeEnum {
+                        name,
+                        description,
+                        default,
+                        tag_type,
+                        variants,
+                        deny_unknown_fields,
+                        built,
+                    } = type_enum;
+                    // let name = format_ident!("{}", name);
+                    let description = description.as_ref().map(|desc| quote! { #[doc = #desc ]});
+                    let serde = match tag_type {
+                        EnumTagType::External => TokenStream::new(),
+                        EnumTagType::Internal { tag } => quote! {
+                            #[serde(tag = #tag)]
+                        },
+                        EnumTagType::Adjacent { tag, content } => quote! {
+                            #[serde(tag = #tag, content = #content)]
+                        },
+                        EnumTagType::Untagged => quote! {
+                            #[serde(untagged)]
+                        },
+                    };
+
+                    let variants = variants.iter().map(|variant| {
+                        let EnumVariant {
+                            rust_name,
+                            rename,
+                            description,
+                            details,
+                        } = variant;
+                        let name = format_ident!("{}", rust_name);
+                        let variant_serde = rename.as_ref().map(|n| {
+                            quote! {
+                                #[serde(rename(#n))]
+                            }
+                        });
+                        let description =
+                            description.as_ref().map(|desc| quote! { #[doc = #desc ]});
+
+                        let data = match details {
+                            VariantDetails::Simple => TokenStream::new(),
+                            VariantDetails::Item(item) => {
+                                let item_ident = self.render_ident(item);
+                                quote! {
+                                    (#item_ident)
+                                }
+                            }
+                            VariantDetails::Tuple(items) => todo!(),
+                            VariantDetails::Struct(properties) => {
+                                let properties = properties
+                                    .iter()
+                                    .map(|struct_prop| self.render_struct_property(struct_prop));
+                                quote! {
+                                    {
+                                        #( #properties, )*
+                                    }
+                                }
+                            }
+                        };
+
+                        quote! {
+                            #description
+                            #variant_serde
+                            #name #data
+                        }
+                    });
+
+                    let xxx_doc_str = id.to_string();
+                    let xxx_doc = quote! { #[doc = #xxx_doc_str] };
+
+                    let name = built.as_ref().unwrap().name.to_string();
+                    let name_ident = format_ident!("{name}");
+
+                    quote! {
+                        #xxx_doc
+                        #description
+                        #serde
+                        pub enum #name_ident {
+                            #( #variants, )*
+                        }
+                    }
+                }
+                Type::Struct(type_struct) => {
+                    println!("{:#?}", type_struct);
+                    todo!()
+                }
+                _ => quote! {},
+            }
+        });
+        let file = parse_quote! {
+            #( #types )*
+        };
+        prettyplease::unparse(&file)
+    }
+
+    fn render_ident(&self, id: &Id) -> TokenStream {
+        let ty = self.types.get(id).unwrap();
+        match ty {
+            Type::Enum(type_enum) => {
+                let name = type_enum.built.as_ref().unwrap().name.to_string();
+                let name_ident = format_ident!("{name}");
+                name_ident.into_token_stream()
+            }
+            Type::Struct(_) => {
+                let ref_str = id.to_string();
+                quote! { Ref<#ref_str> }
+            }
+            // Type::Native(_) => todo!(),
+            // Type::Option(_) => todo!(),
+            // Type::Box(_) => todo!(),
+            Type::Vec(inner_id) => {
+                let inner_ident = self.render_ident(inner_id);
+                quote! {
+                    ::std::vec::Vec<#inner_ident>
+                }
+            }
+            Type::Map(key_id, value_id) => {
+                let key_ident = self.render_ident(key_id);
+                let value_ident = self.render_ident(value_id);
+                quote! {
+                    ::std::btreemap::BTreeMap<#key_ident, #value_ident>
+                }
+            }
+            // Type::Set(_) => todo!(),
+            // Type::Array(_, _) => todo!(),
+            // Type::Tuple(items) => todo!(),
+            // Type::Unit => todo!(),
+            Type::Boolean => quote! { boolean },
+            Type::Integer(name) | Type::Float(name) => syn::parse_str::<syn::TypePath>(name)
+                .unwrap()
+                .to_token_stream(),
+            Type::String => quote! { String },
+            Type::JsonValue => quote! { ::serde_json::Value },
+            _ => quote! { () },
+        }
+    }
+
+    fn render_struct_property(
+        &self,
+        StructProperty {
+            rust_name,
+            json_name,
+            state,
+            description,
+            type_id,
+        }: &StructProperty<Id>,
+    ) -> TokenStream {
+        let description = description.as_ref().map(|text| {
+            quote! {
+                #[doc = #text]
+            }
+        });
+
+        let mut serde_options = Vec::new();
+
+        match json_name {
+            StructPropertySerde::None => {}
+            StructPropertySerde::Rename(s) => {
+                serde_options.push(quote! {
+                    rename = #s
+                });
+            }
+            StructPropertySerde::Flatten => {
+                serde_options.push(quote! {
+                    #[serde(flatten)]
+                });
+            }
+        };
+
+        let serde = (!serde_options.is_empty()).then(|| {
+            quote! {
+                #[serde(
+                    #( #serde_options ),*
+                )];
+            }
+        });
+
+        let ty_ident = self.render_ident(type_id);
+
+        let ty_ident = match state {
+            StructPropertyState::Required => ty_ident,
+            StructPropertyState::Optional => {
+                serde_options.push(quote! {
+                    skip_serializing_if = "::std::option::Option::is_none"
+                });
+                // TODO 7/10/2025
+                // This is interesting and may present an opportunity for
+                // customization. Say the type itself is an Option (e.g.
+                // because there's a oneOf[null, object]). In this case we've
+                // traditionally compressed this down to a single Option, but
+                // we could potentially model this as some other type.
+                quote! {
+                    ::std::option::Option<#ty_ident>
+                }
+            }
+            StructPropertyState::Default(json_value) => todo!(),
+        };
+
+        quote! {
+            // #description
+            // #serde
+            #rust_name: #ty_ident
+        }
+    }
+}
 
 pub struct TypespaceBuilder<Id> {
     types: BTreeMap<Id, Type<Id>>,
@@ -93,6 +312,7 @@ where
                         tag_type,
                         variants,
                         deny_unknown_fields,
+                        ..
                     } = type_enum;
                     // let name = format_ident!("{}", name);
                     let description = description.as_ref().map(|desc| quote! { #[doc = #desc ]});
@@ -111,11 +331,12 @@ where
 
                     let variants = variants.iter().map(|variant| {
                         let EnumVariant {
-                            variant_name,
+                            rust_name,
+                            rename,
                             description,
                             details,
                         } = variant;
-                        let name = format_ident!("{}", variant_name);
+                        let name = format_ident!("{}", rust_name);
                         let description =
                             description.as_ref().map(|desc| quote! { #[doc = #desc ]});
 
@@ -237,10 +458,6 @@ where
     }
 }
 
-pub struct Typespace<Id> {
-    types: BTreeMap<Id, Type<Id>>,
-}
-
 impl<Id> TypespaceBuilder<Id>
 where
     Id: TypeId,
@@ -338,35 +555,40 @@ where
 
         let mut namespace = Namespace::default();
 
-        for (id, typ) in &types {
-            let Some(name) = typ.get_name() else {
-                continue;
-            };
-
-            let xxx = match name {
-                NameBuilder::Unset => unreachable!(),
-                NameBuilder::Fixed(s) => {
-                    let nn = namespace.make_name(id.clone());
-                    nn.set_name(s);
-                }
-                NameBuilder::Hints(hints) => {
-                    let nn = namespace.make_name(id.clone());
-
-                    for hint in hints {
-                        match hint {
-                            NameBuilderHint::Title(_) => todo!(),
-                            NameBuilderHint::Parent(id, s) => {
-                                nn.derive_name(id, s);
-                            }
+        for (id, typ) in &mut types {
+            match typ {
+                Type::Enum(type_enum) => {
+                    let name = match &type_enum.name {
+                        NameBuilder::Unset => unreachable!(),
+                        NameBuilder::Fixed(s) => {
+                            let nn = namespace.make_name(id.clone());
+                            nn.set_name(s);
+                            nn
                         }
-                    }
+                        NameBuilder::Hints(hints) => {
+                            let nn = namespace.make_name(id.clone());
+
+                            for hint in hints {
+                                match hint {
+                                    NameBuilderHint::Title(_) => todo!(),
+                                    NameBuilderHint::Parent(id, s) => {
+                                        nn.derive_name(id, s);
+                                    }
+                                }
+                            }
+                            nn
+                        }
+                    };
+                    type_enum.built = Some(TypeEnumBuilt { name });
                 }
-            };
+                Type::Struct(type_struct) => todo!(),
+                _ => {}
+            }
 
             println!("{:#?}", typ);
         }
 
-        let n2 = namespace.finalize();
+        let n2 = namespace.finalize().unwrap();
 
         // TODO 7/1/2025
         // Let's do names first.
@@ -376,7 +598,7 @@ where
         // TODO resolve names
         // TODO propagate trait impls
 
-        todo!()
+        Ok(Typespace { types })
     }
 }
 

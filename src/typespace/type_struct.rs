@@ -1,14 +1,26 @@
+use proc_macro2::TokenStream;
+use quote::quote;
 use syn::Ident;
 
-use crate::typespace::{JsonValue, NameBuilder};
+use crate::{
+    namespace::Name,
+    typespace::{JsonValue, NameBuilder, Typespace},
+};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub struct TypeStruct<Id> {
     pub name: NameBuilder<Id>,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub properties: Vec<StructProperty<Id>>,
     pub deny_unknown_fields: bool,
+
+    pub built: Option<TypeStructBuilt<Id>>,
+}
+
+#[derive(Debug, Clone)]
+struct TypeStructBuilt<Id> {
+    name: Name<Id>,
 }
 
 // pub struct TypeStructBuilder<Id> {
@@ -26,6 +38,22 @@ impl<Id> TypeStruct<Id>
 where
     Id: Clone,
 {
+    pub fn new(
+        name: NameBuilder<Id>,
+        description: Option<String>,
+        default: Option<JsonValue>,
+        properties: Vec<StructProperty<Id>>,
+        deny_unknown_fields: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default,
+            properties,
+            deny_unknown_fields,
+            built: None,
+        }
+    }
     pub(crate) fn children(&self) -> Vec<Id> {
         self.properties
             .iter()

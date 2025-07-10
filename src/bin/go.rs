@@ -716,8 +716,12 @@ fn typify(
         // Not sure if this is the right place to look for a name, but maybe
         // it's okay. At this point we know that the path really is about to
         // have a type at this location, and we don't know that any sooner.
+        //
         // Note that we need to have something more generic than $defs and I'm
         // not sure we're always going to apply this heuristic.
+        //
+        // TODO 7/10/2025
+        // In sum: there's more thinking to do here.
         if let bundler::schemalet::SchemaRef::Id(path) = &id {
             let url = Url::parse(path).unwrap();
 
@@ -742,7 +746,9 @@ fn typify(
     let out = typespace.render();
     println!("file\n{out}");
 
-    let typespace_final = typespace.finalize();
+    let typespace_final = typespace.finalize().unwrap();
+    let out = typespace_final.render();
+    println!("file\n{out}");
 
     todo!("done?");
 }

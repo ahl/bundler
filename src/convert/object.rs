@@ -61,13 +61,13 @@ impl Converter {
                     })
                     .collect();
 
-                Type::Struct(TypeStruct {
+                Type::Struct(TypeStruct::new(
                     name,
-                    description: metadata.description.clone(),
-                    default: None,
+                    metadata.description.clone(),
+                    None,
                     properties,
-                    deny_unknown_fields: false,
-                })
+                    false,
+                ))
             }
 
             SchemaletValueObject {

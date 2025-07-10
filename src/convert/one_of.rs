@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
+use heck::ToPascalCase;
+
 use crate::{
     convert::Converter,
     schemalet::{
@@ -114,11 +116,16 @@ impl Converter {
             .flatten()
             .map(|ProtoVariantExternal { proto, kind }| {
                 match kind {
-                    ProtoVariantExternalKind::Simple(variant_name) => EnumVariant {
-                        variant_name,
-                        description: proto.description.clone(),
-                        details: VariantDetails::Simple,
-                    },
+                    ProtoVariantExternalKind::Simple(variant_name) => {
+                        let rust_name = variant_name.to_pascal_case();
+                        let rename = (variant_name != rust_name).then_some(variant_name);
+                        EnumVariant {
+                            rust_name,
+                            rename,
+                            description: proto.description.clone(),
+                            details: VariantDetails::Simple,
+                        }
+                    }
                     ProtoVariantExternalKind::Typed(variant_name, schema_ref) => todo!(),
                 }
                 // todo!();
@@ -130,14 +137,14 @@ impl Converter {
             })
             .collect::<Vec<_>>();
 
-        Some(Type::Enum(TypeEnum {
+        Some(Type::Enum(TypeEnum::new(
             name,
-            description: metadata.description.clone(),
-            default: None,
-            tag_type: EnumTagType::External,
-            variants: variants,
-            deny_unknown_fields: false,
-        }))
+            metadata.description.clone(),
+            None,
+            EnumTagType::External,
+            variants,
+            false,
+        )))
     }
 
     fn untagged_enum(
@@ -190,21 +197,22 @@ impl Converter {
                     };
 
                 EnumVariant {
-                    variant_name: name,
+                    rust_name: name,
+                    rename: None,
                     description: proto.description.clone(),
                     details,
                 }
             })
             .collect::<Vec<_>>();
 
-        Type::Enum(TypeEnum {
+        Type::Enum(TypeEnum::new(
             name,
-            description: metadata.description.clone(),
-            default: None,
-            tag_type: EnumTagType::Untagged,
+            metadata.description.clone(),
+            None,
+            EnumTagType::Untagged,
             variants,
-            deny_unknown_fields: false,
-        })
+            false,
+        ))
     }
 
     fn xxx_maybe_struct_props(
