@@ -2,45 +2,31 @@ use syn::Ident;
 
 use crate::{
     namespace::Name,
-    typespace::{InternalId, JsonValue, NameBuilder},
+    typespace::{JsonValue, NameBuilder, TypeId},
 };
 
 #[derive(Debug, Clone)]
-pub struct TypeStruct<Id> {
-    pub name: NameBuilder<InternalId<Id>>,
+pub struct TypeStruct {
+    pub name: NameBuilder,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
-    pub properties: Vec<StructProperty<Id>>,
+    pub properties: Vec<StructProperty>,
     pub deny_unknown_fields: bool,
 
-    pub built: Option<TypeStructBuilt<Id>>,
+    pub built: Option<TypeStructBuilt>,
 }
 
 #[derive(Debug, Clone)]
-struct TypeStructBuilt<Id> {
-    name: Name<Id>,
+struct TypeStructBuilt {
+    name: Name<TypeId>,
 }
 
-// pub struct TypeStructBuilder<Id> {
-//     pub description: Option<String>,
-//     pub default: Option<JsonValue>,
-//     pub properties: Vec<TypeStructPropertyBuilder<Id>>,
-//     pub deny_unknown_fields: bool,
-// }
-// pub struct TypeStructPropertyBuilder<Id> {
-//     pub rust_name: String,
-//     pub json_name: Struct
-// }
-
-impl<Id> TypeStruct<Id>
-where
-    Id: Clone,
-{
+impl TypeStruct {
     pub fn new(
-        name: NameBuilder<Id>,
+        name: NameBuilder,
         description: Option<String>,
         default: Option<JsonValue>,
-        properties: Vec<StructProperty<Id>>,
+        properties: Vec<StructProperty>,
         deny_unknown_fields: bool,
     ) -> Self {
         Self {
@@ -52,14 +38,14 @@ where
             built: None,
         }
     }
-    pub(crate) fn children(&self) -> Vec<InternalId<Id>> {
+    pub(crate) fn children(&self) -> Vec<TypeId> {
         self.properties
             .iter()
             .map(|StructProperty { type_id, .. }| type_id.clone())
             .collect()
     }
 
-    pub(crate) fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
+    pub(crate) fn children_with_context(&self) -> Vec<(TypeId, String)> {
         self.properties
             .iter()
             .map(
@@ -72,21 +58,21 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct StructProperty<Id> {
+pub struct StructProperty {
     pub rust_name: Ident,
     pub json_name: StructPropertySerde,
     pub state: StructPropertyState,
     pub description: Option<String>,
-    pub type_id: InternalId<Id>,
+    pub type_id: TypeId,
 }
 
-impl<Id> StructProperty<Id> {
+impl StructProperty {
     pub fn new(
         rust_name: Ident,
         json_name: StructPropertySerde,
         state: StructPropertyState,
         description: Option<String>,
-        type_id: Id,
+        type_id: TypeId,
     ) -> Self {
         Self {
             rust_name,

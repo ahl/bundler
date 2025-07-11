@@ -7,10 +7,10 @@ use crate::{
 impl Converter {
     pub(crate) fn convert_array(
         &self,
-        name: NameBuilder<SchemaRef>,
+        name: NameBuilder,
         metadata: &crate::schemalet::SchemaletMetadata,
         array: &SchemaletValueArray,
-    ) -> Type<SchemaRef> {
+    ) -> Type {
         match array {
             SchemaletValueArray {
                 items,
@@ -32,7 +32,7 @@ impl Converter {
                 unique_items,
             } => {
                 let GottenStuff { id, .. } = self.resolve_and_get_stuff(items);
-                Type::new_vec(id.clone())
+                Type::Vec(self.ids.get(id).unwrap().clone())
             }
 
             _ => {

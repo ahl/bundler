@@ -1,37 +1,32 @@
-use syn::Variant;
-
 use crate::{
     namespace::Name,
-    typespace::{InternalId, JsonValue, NameBuilder, StructProperty},
+    typespace::{JsonValue, NameBuilder, StructProperty, TypeId},
 };
 
 #[derive(Debug, Clone)]
-pub struct TypeEnum<Id> {
-    pub name: NameBuilder<InternalId<Id>>,
+pub struct TypeEnum {
+    pub name: NameBuilder,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub tag_type: EnumTagType,
-    pub variants: Vec<EnumVariant<Id>>,
+    pub variants: Vec<EnumVariant>,
     pub deny_unknown_fields: bool,
 
-    pub built: Option<TypeEnumBuilt<Id>>,
+    pub built: Option<TypeEnumBuilt>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TypeEnumBuilt<Id> {
-    pub name: Name<InternalId<Id>>,
+pub(crate) struct TypeEnumBuilt {
+    pub name: Name<TypeId>,
 }
 
-impl<Id> TypeEnum<Id>
-where
-    Id: Clone,
-{
+impl TypeEnum {
     pub fn new(
-        name: NameBuilder<Id>,
+        name: NameBuilder,
         description: Option<String>,
         default: Option<JsonValue>,
         tag_type: EnumTagType,
-        variants: Vec<EnumVariant<Id>>,
+        variants: Vec<EnumVariant>,
         deny_unknown_fields: bool,
     ) -> Self {
         let name = name.into();
@@ -46,14 +41,14 @@ where
         }
     }
 
-    pub(crate) fn children(&self) -> Vec<InternalId<Id>> {
+    pub(crate) fn children(&self) -> Vec<TypeId> {
         self.variants
             .iter()
             .flat_map(|variant| variant.children())
             .collect()
     }
 
-    pub(crate) fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
+    pub(crate) fn children_with_context(&self) -> Vec<(TypeId, String)> {
         self.variants
             .iter()
             .flat_map(|variant| variant.children_with_context())
@@ -82,19 +77,16 @@ pub enum EnumTagType {
 // of the type which makes it kind of a pain in the neck.
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct EnumVariant<Id> {
+pub struct EnumVariant {
     pub rust_name: String,
     pub rename: Option<String>,
     // TODO need a name for serialization?
     // pub json_name: String,
     pub description: Option<String>,
-    pub details: VariantDetails<Id>,
+    pub details: VariantDetails,
 }
-impl<Id> EnumVariant<Id>
-where
-    Id: Clone,
-{
-    fn children(&self) -> Vec<InternalId<Id>> {
+impl EnumVariant {
+    fn children(&self) -> Vec<TypeId> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
             VariantDetails::Item(id) => vec![id.clone()],
@@ -105,7 +97,7 @@ where
         }
     }
 
-    fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
+    fn children_with_context(&self) -> Vec<(TypeId, String)> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
             VariantDetails::Item(id) => vec![(id.clone(), self.rust_name.clone())],
@@ -128,19 +120,9 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VariantDetails<Id> {
+pub enum VariantDetails {
     Simple,
-    Item(InternalId<Id>),
-    Tuple(Vec<InternalId<Id>>),
-    Struct(Vec<StructProperty<Id>>),
-}
-
-impl<Id> VariantDetails<Id> {
-    pub fn new_simple() -> Self {
-        VariantDetails::Simple
-    }
-
-    pub fn new_item(id: Id) -> Self {
-        VariantDetails::Item(id.into())
-    }
+    Item(TypeId),
+    Tuple(Vec<TypeId>),
+    Struct(Vec<StructProperty>),
 }

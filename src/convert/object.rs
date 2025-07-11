@@ -12,10 +12,10 @@ use crate::{
 impl Converter {
     pub(crate) fn convert_object(
         &self,
-        name: NameBuilder<SchemaRef>,
+        name: NameBuilder,
         metadata: &SchemaletMetadata,
         object: &SchemaletValueObject,
-    ) -> Type<SchemaRef> {
+    ) -> Type {
         // TODO 6/30/2025
         // Increasingly I'm of the opinion I need to do the conversion from the
         // JSON Schema style object into my new, "structural" encoding.
@@ -56,7 +56,7 @@ impl Converter {
                             StructPropertyState::Optional,
                             // TODO maybe a helper to pull out descriptions for property meta?
                             description,
-                            id.clone(),
+                            self.ids.get(id).unwrap().clone(),
                         )
                     })
                     .collect();
@@ -86,7 +86,10 @@ impl Converter {
                     title: _,
                 } = self.resolve_and_get_stuff(additional_properties);
 
-                Type::new_map(key_id, id.clone())
+                Type::Map(
+                    self.ids.get(&key_id).unwrap().clone(),
+                    self.ids.get(id).unwrap().clone(),
+                )
             }
 
             _ => todo!(

@@ -675,7 +675,7 @@ fn typify(
 
     println!("{}", serde_json::to_string_pretty(schemalet).unwrap());
 
-    let mut typespace = TypespaceBuilder::<bundler::schemalet::SchemaRef>::default();
+    let mut typespace = TypespaceBuilder::default();
 
     canonical.insert(
         bundler::schemalet::SchemaRef::Internal("string".to_string()),
@@ -698,7 +698,19 @@ fn typify(
     // worth trying first to stress test dependent naming. Each child should
     // be able to have a name derived from that of its parent.
 
-    let mut converter = bundler::convert::Converter::new(canonical);
+    // TODO 7/11/2025
+    // Not sure this is better, but making a translation here from schema ref
+    // to id.
+
+    let mut ids = BTreeMap::new();
+    let mut inverse_ids = BTreeMap::new();
+    for key in canonical.keys() {
+        let type_id = typespace.allocate_id();
+        ids.insert(key.clone(), type_id.clone());
+        inverse_ids.insert(type_id, key.clone());
+    }
+
+    let mut converter = bundler::convert::Converter::new(canonical, ids);
 
     converter.set_name(root_id.clone(), "SchemaRoot".to_string());
 
@@ -734,13 +746,17 @@ fn typify(
 
         println!("id = {id}");
 
-        let typ = converter.convert(&id);
+        let (typ, type_id) = converter.convert(&id);
 
-        typespace.insert(id.clone(), typ.clone());
+        typespace.insert(type_id.clone(), typ.clone());
 
         println!("{:#?}", &typ);
 
-        work.extend(typ.xxx_bad_children());
+        work.extend(
+            typ.children()
+                .into_iter()
+                .map(|type_id| inverse_ids.get(&type_id).unwrap().clone()),
+        );
     }
 
     let out = typespace.render();

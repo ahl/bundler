@@ -18,37 +18,27 @@ use quote::{format_ident, quote, ToTokens};
 use crate::namespace::Namespace;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NameBuilder<Id> {
-    Unset,
-    Fixed(String),
-    Hints(Vec<NameBuilderHint<Id>>),
+pub struct TypeId {
+    id: u64,
 }
 
-impl<Id> From<NameBuilder<Id>> for NameBuilder<InternalId<Id>> {
-    fn from(value: NameBuilder<Id>) -> Self {
-        match value {
-            NameBuilder::Unset => NameBuilder::Unset,
-            NameBuilder::Fixed(s) => NameBuilder::Fixed(s),
-            NameBuilder::Hints(hints) => {
-                NameBuilder::Hints(hints.into_iter().map(Into::into).collect())
-            }
-        }
+impl Display for TypeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(f)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NameBuilderHint<Id> {
-    Title(String),
-    Parent(Id, String),
+pub enum NameBuilder {
+    Unset,
+    Fixed(String),
+    Hints(Vec<NameBuilderHint>),
 }
 
-impl<Id> From<NameBuilderHint<Id>> for NameBuilderHint<InternalId<Id>> {
-    fn from(value: NameBuilderHint<Id>) -> Self {
-        match value {
-            NameBuilderHint::Title(s) => NameBuilderHint::Title(s),
-            NameBuilderHint::Parent(id, s) => NameBuilderHint::Parent(InternalId::Id(id), s),
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NameBuilderHint {
+    Title(String),
+    Parent(TypeId, String),
 }
 
 // 6/25/2025
@@ -56,43 +46,12 @@ impl<Id> From<NameBuilderHint<Id>> for NameBuilderHint<InternalId<Id>> {
 // finalized form which probably is basically what typify shows today in its
 // public interface.
 
-pub trait TypeId: Ord + Display + std::fmt::Debug + Clone {}
-
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub(crate) enum InternalId<Id> {
-    Id(Id),
-    Box(Id),
-}
-
-impl<Id> From<Id> for InternalId<Id> {
-    fn from(id: Id) -> Self {
-        Self::Id(id)
-    }
-}
-
-impl<Id> Display for InternalId<Id>
-where
-    Id: Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            InternalId::Id(id) => id.fmt(f),
-            InternalId::Box(id) => {
-                f.write_str("box -> ")?;
-                id.fmt(f)
-            }
-        }
-    }
-}
-pub struct Typespace<Id> {
-    types: BTreeMap<InternalId<Id>, Type<Id>>,
+pub struct Typespace {
+    types: BTreeMap<TypeId, Type>,
 }
 // TODO this impl is intended just for goofing around. I'm sort of wondering if
 // these types aren't just "builders"
-impl<Id> Typespace<Id>
-where
-    Id: TypeId,
-{
+impl Typespace {
     pub fn render(&self) -> String {
         let types = self.types.iter().map(|(id, typ)| match typ {
             Type::Enum(type_enum) => {
@@ -162,14 +121,11 @@ where
                     }
                 });
 
-                let xxx_doc_str = id.to_string();
-                let xxx_doc = quote! { #[doc = #xxx_doc_str] };
-
                 let name = built.as_ref().unwrap().name.to_string();
                 let name_ident = format_ident!("{name}");
 
                 quote! {
-                    #xxx_doc
+                    // TODO I want to have the original unique id available
                     #description
                     #[derive(::serde::Deserialize, ::serde::Serialize)]
                     #serde
@@ -190,7 +146,7 @@ where
         prettyplease::unparse(&file)
     }
 
-    fn render_ident(&self, id: &InternalId<Id>) -> TokenStream {
+    fn render_ident(&self, id: &TypeId) -> TokenStream {
         let ty = self.types.get(id).unwrap();
         match ty {
             Type::Enum(type_enum) => {
@@ -199,8 +155,7 @@ where
                 name_ident.into_token_stream()
             }
             Type::Struct(_) => {
-                let ref_str = id.to_string();
-                quote! { Ref<#ref_str> }
+                quote! { Ref<"???"> }
             }
             // Type::Native(_) => todo!(),
             // Type::Option(_) => todo!(),
@@ -240,7 +195,7 @@ where
             state,
             description,
             type_id,
-        }: &StructProperty<Id>,
+        }: &StructProperty,
     ) -> TokenStream {
         let description = description.as_ref().map(|text| {
             quote! {
@@ -264,14 +219,6 @@ where
             }
         };
 
-        let serde = (!serde_options.is_empty()).then(|| {
-            quote! {
-                #[serde(
-                    #( #serde_options ),*
-                )];
-            }
-        });
-
         let ty_ident = self.render_ident(type_id);
 
         let ty_ident = match state {
@@ -293,32 +240,45 @@ where
             StructPropertyState::Default(json_value) => todo!(),
         };
 
+        let serde = (!serde_options.is_empty()).then(|| {
+            quote! {
+                #[serde(
+                    #( #serde_options ),*
+                )]
+            }
+        });
+
         quote! {
-            // #description
-            // #serde
+            #description
+            #serde
             #rust_name: #ty_ident
         }
     }
 }
 
-pub struct TypespaceBuilder<Id> {
-    types: BTreeMap<InternalId<Id>, Type<Id>>,
+pub struct TypespaceBuilder {
+    types: BTreeMap<TypeId, Type>,
+    last: TypeId,
 }
 
-impl<Id> Default for TypespaceBuilder<Id> {
+impl Default for TypespaceBuilder {
     fn default() -> Self {
         Self {
             types: Default::default(),
+            last: TypeId { id: 0 },
         }
     }
 }
 
 // TODO this impl is intended just for goofing around. I'm sort of wondering if
 // these types aren't just "builders"
-impl<Id> TypespaceBuilder<Id>
-where
-    Id: TypeId,
-{
+impl TypespaceBuilder {
+    pub fn allocate_id(&mut self) -> TypeId {
+        let out = self.last.clone();
+        self.last.id += 1;
+        out
+    }
+
     pub fn render(&self) -> String {
         let types = self.types.iter().map(|(id, typ)| {
             match typ {
@@ -413,11 +373,11 @@ where
                         }
                     });
 
-                    let xxx_doc_str = id.to_string();
-                    let xxx_doc = quote! { #[doc = #xxx_doc_str] };
+                    // let xxx_doc_str = id.to_string();
+                    // let xxx_doc = quote! { #[doc = #xxx_doc_str] };
 
                     quote! {
-                        #xxx_doc
+                        // #xxx_doc
                         #description
                         #serde
                         pub enum Unknown {
@@ -438,11 +398,12 @@ where
         prettyplease::unparse(&file)
     }
 
-    fn render_ident(&self, id: &InternalId<Id>) -> TokenStream {
+    fn render_ident(&self, id: &TypeId) -> TokenStream {
         let ty = self.types.get(id).unwrap();
         match ty {
             Type::Enum(_) | Type::Struct(_) => {
-                let ref_str = id.to_string();
+                // let ref_str = id.to_string();
+                let ref_str = "???";
                 quote! { Ref<#ref_str> }
             }
             // Type::Native(_) => todo!(),
@@ -476,14 +437,8 @@ where
     }
 }
 
-impl<Id> TypespaceBuilder<Id>
-where
-    Id: TypeId,
-{
-    pub fn insert(&mut self, id: Id, typ: Type<Id>)
-    where
-        Id: Ord,
-    {
+impl TypespaceBuilder {
+    pub fn insert(&mut self, id: TypeId, typ: Type) {
         match self.types.entry(id.into()) {
             Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(typ.into());
@@ -495,7 +450,7 @@ where
         }
     }
 
-    pub fn finalize(self) -> Result<Typespace<Id>, ()> {
+    pub fn finalize(self) -> Result<Typespace, ()> {
         // Basic steps:
         // 1. Construct the parent and child adjacency lists
         // 2. Figure out names for all types that need them
@@ -503,7 +458,7 @@ where
         // 4. Propagate trait impls
         // 5. Type-specific finalization
 
-        let Self { mut types } = self;
+        let Self { mut types, last } = self;
 
         // TODO 7/2/2025
         // It's all graphs. Think about everything as a graph traversal.
@@ -542,7 +497,7 @@ where
             }
         }
 
-        let mut name_hints = BTreeMap::<_, Vec<NameBuilderHint<_>>>::new();
+        let mut name_hints = BTreeMap::<_, Vec<NameBuilderHint>>::new();
 
         while let Some((parent_id, child_id, child_sigil)) = work.pop_front() {
             let child_typ = types.get(&child_id).unwrap();
@@ -571,7 +526,7 @@ where
             }
         });
 
-        let mut namespace = Namespace::<InternalId<Id>>::default();
+        let mut namespace = Namespace::<TypeId>::default();
 
         for (id, typ) in &mut types {
             match typ {
@@ -623,19 +578,19 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub enum Type<Id> {
-    Enum(TypeEnum<Id>),
-    Struct(TypeStruct<Id>),
+pub enum Type {
+    Enum(TypeEnum),
+    Struct(TypeStruct),
 
     Native(String),
-    Option(InternalId<Id>),
+    Option(TypeId),
 
-    Box(InternalId<Id>),
-    Vec(InternalId<Id>),
-    Map(InternalId<Id>, InternalId<Id>),
-    Set(InternalId<Id>),
-    Array(InternalId<Id>, usize),
-    Tuple(Vec<InternalId<Id>>),
+    Box(TypeId),
+    Vec(TypeId),
+    Map(TypeId, TypeId),
+    Set(TypeId),
+    Array(TypeId, usize),
+    Tuple(Vec<TypeId>),
     Unit,
     Boolean,
     /// Integers
@@ -648,35 +603,8 @@ pub enum Type<Id> {
     JsonValue,
 }
 
-impl<Id> From<Type<Id>> for Type<InternalId<Id>> {
-    fn from(value: Type<Id>) -> Self {
-        match value {
-            Type::Enum(type_enum) => todo!(),
-            Type::Struct(type_struct) => todo!(),
-
-            Type::Native(s) => Type::Native(s),
-            Type::Option(id) => Type::Option(id.into()),
-            Type::Box(id) => todo!(),
-            Type::Vec(id) => todo!(),
-            Type::Map(key_id, value_id) => todo!(),
-            Type::Set(id) => todo!(),
-            Type::Array(id, len) => todo!(),
-            Type::Tuple(items) => todo!(),
-            Type::Unit => todo!(),
-            Type::Boolean => todo!(),
-            Type::Integer(name) => todo!(),
-            Type::Float(name) => todo!(),
-            Type::String => todo!(),
-            Type::JsonValue => todo!(),
-        }
-    }
-}
-
-impl<Id> Type<Id>
-where
-    Id: Clone,
-{
-    fn add_name_hints(&mut self, hints: Vec<NameBuilderHint<InternalId<Id>>>) {
+impl Type {
+    fn add_name_hints(&mut self, hints: Vec<NameBuilderHint>) {
         if let Some(name) = match self {
             Type::Enum(type_enum) => Some(&mut type_enum.name),
             Type::Struct(type_struct) => Some(&mut type_struct.name),
@@ -690,7 +618,7 @@ where
         }
     }
 
-    fn get_name(&self) -> Option<&NameBuilder<InternalId<Id>>> {
+    fn get_name(&self) -> Option<&NameBuilder> {
         match self {
             Type::Enum(type_enum) => Some(&type_enum.name),
             Type::Struct(type_struct) => Some(&type_struct.name),
@@ -705,26 +633,7 @@ where
         }
     }
 
-    pub fn new_map(key_id: Id, value_id: Id) -> Self {
-        Self::Map(key_id.into(), value_id.into())
-    }
-    pub fn new_vec(id: Id) -> Self {
-        Self::Vec(id.into())
-    }
-
-    pub fn xxx_bad_children(&self) -> Vec<Id> {
-        self.children()
-            .into_iter()
-            .map(|int_id| {
-                let InternalId::Id(id) = int_id else {
-                    panic!();
-                };
-                id
-            })
-            .collect()
-    }
-
-    fn children(&self) -> Vec<InternalId<Id>> {
+    pub fn children(&self) -> Vec<TypeId> {
         match self {
             Type::Enum(type_enum) => type_enum.children(),
             Type::Struct(type_struct) => type_struct.children(),
@@ -748,7 +657,7 @@ where
         }
     }
 
-    fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
+    fn children_with_context(&self) -> Vec<(TypeId, String)> {
         match self {
             Type::Enum(type_enum) => type_enum.children_with_context(),
             Type::Struct(type_struct) => type_struct.children_with_context(),
@@ -773,7 +682,7 @@ where
         }
     }
 
-    pub fn contained_children_mut(&mut self) -> Vec<&mut Id> {
+    pub fn contained_children_mut(&mut self) -> Vec<&mut TypeId> {
         match self {
             Type::Enum(TypeEnum { variants, .. }) => todo!(),
             Type::Struct(TypeStruct { properties, .. }) => todo!(),

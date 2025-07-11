@@ -6,20 +6,25 @@ use std::collections::BTreeMap;
 
 use crate::{
     schemalet::{CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletValue},
-    typespace::{NameBuilder, Type},
+    typespace::{NameBuilder, Type, TypeId},
 };
 
 // TODO naming?
 pub struct Converter {
     graph: BTreeMap<SchemaRef, CanonicalSchemalet>,
     known_names: BTreeMap<SchemaRef, String>,
+    ids: BTreeMap<SchemaRef, TypeId>,
 }
 
 impl Converter {
-    pub fn new(graph: BTreeMap<SchemaRef, CanonicalSchemalet>) -> Self {
+    pub fn new(
+        graph: BTreeMap<SchemaRef, CanonicalSchemalet>,
+        ids: BTreeMap<SchemaRef, TypeId>,
+    ) -> Self {
         Self {
             graph,
             known_names: Default::default(),
+            ids,
         }
     }
 
@@ -68,7 +73,7 @@ impl Converter {
         }
     }
 
-    pub fn convert(&self, id: &SchemaRef) -> Type<SchemaRef> {
+    pub fn convert(&self, id: &SchemaRef) -> (Type, TypeId) {
         let name = match self.known_names.get(id) {
             Some(s) => NameBuilder::Fixed(s.clone()),
             None => NameBuilder::Unset,
@@ -81,7 +86,7 @@ impl Converter {
         );
         let CanonicalSchemalet { metadata, details } = schemalet;
 
-        match details {
+        let typ = match details {
             CanonicalSchemaletDetails::Anything => Type::JsonValue,
             CanonicalSchemaletDetails::Nothing => todo!(),
             CanonicalSchemaletDetails::Constant(_) => todo!(),
@@ -116,16 +121,18 @@ impl Converter {
                 Type::Float("f64".to_string())
             }
             CanonicalSchemaletDetails::Value(SchemaletValue::Null) => todo!(),
-        }
+        };
+
+        (typ, self.ids.get(id).unwrap().clone())
     }
 
     fn convert_string(
         &self,
-        name: NameBuilder<SchemaRef>,
+        name: NameBuilder,
         metadata: &crate::schemalet::SchemaletMetadata,
         pattern: Option<&String>,
         format: Option<&String>,
-    ) -> Type<SchemaRef> {
+    ) -> Type {
         match (pattern, format) {
             (_, _) => Type::String,
             // _ => panic!("{:?} {:?}", pattern, format),

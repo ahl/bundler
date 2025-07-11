@@ -16,10 +16,10 @@ use crate::{
 impl Converter {
     pub(crate) fn convert_one_of(
         &self,
-        name: NameBuilder<SchemaRef>,
+        name: NameBuilder,
         metadata: &SchemaletMetadata,
         subschemas: &[SchemaRef],
-    ) -> Type<SchemaRef> {
+    ) -> Type {
         let resolved_subschemas = subschemas
             .into_iter()
             .map(|schema_ref| self.get(schema_ref))
@@ -62,10 +62,10 @@ impl Converter {
 
     fn maybe_externally_tagged_enum(
         &self,
-        name: NameBuilder<SchemaRef>,
+        name: NameBuilder,
         metadata: &SchemaletMetadata,
         proto_variants: &[ProtoVariant],
-    ) -> Option<Type<SchemaRef>> {
+    ) -> Option<Type> {
         let variants = proto_variants
             .iter()
             .map(|proto| match &proto.schemalet.details {
@@ -149,10 +149,10 @@ impl Converter {
 
     fn untagged_enum(
         &self,
-        name: NameBuilder<SchemaRef>,
+        name: NameBuilder,
         metadata: &crate::schemalet::SchemaletMetadata,
         proto_variants: &[ProtoVariant],
-    ) -> Type<SchemaRef> {
+    ) -> Type {
         // 6/27/2025
         // I need to figure out decent names for the variants... and I'm a
         // little unhappy that I may not know the names of the types yet. I
@@ -191,9 +191,9 @@ impl Converter {
             .map(|(proto, name)| {
                 let details =
                     if let Some(struct_props) = self.xxx_maybe_struct_props(&proto.schemalet) {
-                        VariantDetails::<SchemaRef>::Struct(struct_props)
+                        VariantDetails::Struct(struct_props)
                     } else {
-                        VariantDetails::new_item(proto.id.clone())
+                        VariantDetails::Item(self.ids.get(&proto.id).unwrap().clone())
                     };
 
                 EnumVariant {
@@ -218,7 +218,7 @@ impl Converter {
     fn xxx_maybe_struct_props(
         &self,
         schemalet: &CanonicalSchemalet,
-    ) -> Option<Vec<StructProperty<SchemaRef>>> {
+    ) -> Option<Vec<StructProperty>> {
         // TODO somehow I need to know if this is a type that's going to have a
         // name.
         // TODO or we somehow defer that decision to the Typespace's finalize step?

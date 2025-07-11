@@ -22,8 +22,6 @@ pub enum SchemaRef {
     Internal(String),
 }
 
-impl TypeId for SchemaRef {}
-
 impl SchemaRef {
     pub fn partial(&self, part: &str) -> Self {
         let SchemaRef::Id(id) = self else { panic!() };
