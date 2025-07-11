@@ -740,7 +740,7 @@ fn typify(
 
         println!("{:#?}", &typ);
 
-        work.extend(typ.children());
+        work.extend(typ.xxx_bad_children());
     }
 
     let out = typespace.render();

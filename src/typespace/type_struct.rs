@@ -1,15 +1,13 @@
-use proc_macro2::TokenStream;
-use quote::quote;
 use syn::Ident;
 
 use crate::{
     namespace::Name,
-    typespace::{JsonValue, NameBuilder, Typespace},
+    typespace::{InternalId, JsonValue, NameBuilder},
 };
 
 #[derive(Debug, Clone)]
 pub struct TypeStruct<Id> {
-    pub name: NameBuilder<Id>,
+    pub name: NameBuilder<InternalId<Id>>,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub properties: Vec<StructProperty<Id>>,
@@ -46,7 +44,7 @@ where
         deny_unknown_fields: bool,
     ) -> Self {
         Self {
-            name,
+            name: name.into(),
             description,
             default,
             properties,
@@ -54,14 +52,14 @@ where
             built: None,
         }
     }
-    pub(crate) fn children(&self) -> Vec<Id> {
+    pub(crate) fn children(&self) -> Vec<InternalId<Id>> {
         self.properties
             .iter()
             .map(|StructProperty { type_id, .. }| type_id.clone())
             .collect()
     }
 
-    pub(crate) fn children_with_context(&self) -> Vec<(Id, String)> {
+    pub(crate) fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
         self.properties
             .iter()
             .map(
@@ -79,7 +77,25 @@ pub struct StructProperty<Id> {
     pub json_name: StructPropertySerde,
     pub state: StructPropertyState,
     pub description: Option<String>,
-    pub type_id: Id,
+    pub type_id: InternalId<Id>,
+}
+
+impl<Id> StructProperty<Id> {
+    pub fn new(
+        rust_name: Ident,
+        json_name: StructPropertySerde,
+        state: StructPropertyState,
+        description: Option<String>,
+        type_id: Id,
+    ) -> Self {
+        Self {
+            rust_name,
+            json_name,
+            state,
+            description,
+            type_id: type_id.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

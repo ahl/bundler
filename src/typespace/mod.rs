@@ -24,10 +24,31 @@ pub enum NameBuilder<Id> {
     Hints(Vec<NameBuilderHint<Id>>),
 }
 
+impl<Id> From<NameBuilder<Id>> for NameBuilder<InternalId<Id>> {
+    fn from(value: NameBuilder<Id>) -> Self {
+        match value {
+            NameBuilder::Unset => NameBuilder::Unset,
+            NameBuilder::Fixed(s) => NameBuilder::Fixed(s),
+            NameBuilder::Hints(hints) => {
+                NameBuilder::Hints(hints.into_iter().map(Into::into).collect())
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NameBuilderHint<Id> {
     Title(String),
     Parent(Id, String),
+}
+
+impl<Id> From<NameBuilderHint<Id>> for NameBuilderHint<InternalId<Id>> {
+    fn from(value: NameBuilderHint<Id>) -> Self {
+        match value {
+            NameBuilderHint::Title(s) => NameBuilderHint::Title(s),
+            NameBuilderHint::Parent(id, s) => NameBuilderHint::Parent(InternalId::Id(id), s),
+        }
+    }
 }
 
 // 6/25/2025
@@ -64,7 +85,7 @@ where
     }
 }
 pub struct Typespace<Id> {
-    types: BTreeMap<Id, Type<Id>>,
+    types: BTreeMap<InternalId<Id>, Type<Id>>,
 }
 // TODO this impl is intended just for goofing around. I'm sort of wondering if
 // these types aren't just "builders"
@@ -169,7 +190,7 @@ where
         prettyplease::unparse(&file)
     }
 
-    fn render_ident(&self, id: &Id) -> TokenStream {
+    fn render_ident(&self, id: &InternalId<Id>) -> TokenStream {
         let ty = self.types.get(id).unwrap();
         match ty {
             Type::Enum(type_enum) => {
@@ -281,7 +302,7 @@ where
 }
 
 pub struct TypespaceBuilder<Id> {
-    types: BTreeMap<Id, Type<Id>>,
+    types: BTreeMap<InternalId<Id>, Type<Id>>,
 }
 
 impl<Id> Default for TypespaceBuilder<Id> {
@@ -417,7 +438,7 @@ where
         prettyplease::unparse(&file)
     }
 
-    fn render_ident(&self, id: &Id) -> TokenStream {
+    fn render_ident(&self, id: &InternalId<Id>) -> TokenStream {
         let ty = self.types.get(id).unwrap();
         match ty {
             Type::Enum(_) | Type::Struct(_) => {
@@ -463,7 +484,7 @@ where
     where
         Id: Ord,
     {
-        match self.types.entry(id) {
+        match self.types.entry(id.into()) {
             Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(typ.into());
             }
@@ -503,7 +524,7 @@ where
                 id_to_parents
                     .entry(child_id.clone())
                     .or_default()
-                    .push(Id::clone(id));
+                    .push(id.clone());
             }
         }
 
@@ -550,7 +571,7 @@ where
             }
         });
 
-        let mut namespace = Namespace::default();
+        let mut namespace = Namespace::<InternalId<Id>>::default();
 
         for (id, typ) in &mut types {
             match typ {
@@ -607,14 +628,14 @@ pub enum Type<Id> {
     Struct(TypeStruct<Id>),
 
     Native(String),
-    Option(Id),
+    Option(InternalId<Id>),
 
-    Box(Id),
-    Vec(Id),
-    Map(Id, Id),
-    Set(Id),
-    Array(Id, usize),
-    Tuple(Vec<Id>),
+    Box(InternalId<Id>),
+    Vec(InternalId<Id>),
+    Map(InternalId<Id>, InternalId<Id>),
+    Set(InternalId<Id>),
+    Array(InternalId<Id>, usize),
+    Tuple(Vec<InternalId<Id>>),
     Unit,
     Boolean,
     /// Integers
@@ -655,7 +676,7 @@ impl<Id> Type<Id>
 where
     Id: Clone,
 {
-    fn add_name_hints(&mut self, hints: Vec<NameBuilderHint<Id>>) {
+    fn add_name_hints(&mut self, hints: Vec<NameBuilderHint<InternalId<Id>>>) {
         if let Some(name) = match self {
             Type::Enum(type_enum) => Some(&mut type_enum.name),
             Type::Struct(type_struct) => Some(&mut type_struct.name),
@@ -669,7 +690,7 @@ where
         }
     }
 
-    fn get_name(&self) -> Option<&NameBuilder<Id>> {
+    fn get_name(&self) -> Option<&NameBuilder<InternalId<Id>>> {
         match self {
             Type::Enum(type_enum) => Some(&type_enum.name),
             Type::Struct(type_struct) => Some(&type_struct.name),
@@ -684,7 +705,26 @@ where
         }
     }
 
-    pub fn children(&self) -> Vec<Id> {
+    pub fn new_map(key_id: Id, value_id: Id) -> Self {
+        Self::Map(key_id.into(), value_id.into())
+    }
+    pub fn new_vec(id: Id) -> Self {
+        Self::Vec(id.into())
+    }
+
+    pub fn xxx_bad_children(&self) -> Vec<Id> {
+        self.children()
+            .into_iter()
+            .map(|int_id| {
+                let InternalId::Id(id) = int_id else {
+                    panic!();
+                };
+                id
+            })
+            .collect()
+    }
+
+    fn children(&self) -> Vec<InternalId<Id>> {
         match self {
             Type::Enum(type_enum) => type_enum.children(),
             Type::Struct(type_struct) => type_struct.children(),
@@ -708,7 +748,7 @@ where
         }
     }
 
-    pub fn children_with_context(&self) -> Vec<(Id, String)> {
+    fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
         match self {
             Type::Enum(type_enum) => type_enum.children_with_context(),
             Type::Struct(type_struct) => type_struct.children_with_context(),

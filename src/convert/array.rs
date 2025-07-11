@@ -32,7 +32,7 @@ impl Converter {
                 unique_items,
             } => {
                 let GottenStuff { id, .. } = self.resolve_and_get_stuff(items);
-                Type::Vec(id.clone())
+                Type::new_vec(id.clone())
             }
 
             _ => {

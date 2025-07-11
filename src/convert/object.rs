@@ -49,15 +49,15 @@ impl Converter {
                         } else {
                             StructPropertySerde::Rename(prop_name.clone())
                         };
-                        StructProperty {
+                        StructProperty::new(
                             rust_name,
                             json_name,
                             // TODO need to figure this out
-                            state: StructPropertyState::Optional,
+                            StructPropertyState::Optional,
                             // TODO maybe a helper to pull out descriptions for property meta?
                             description,
-                            type_id: id.clone(),
-                        }
+                            id.clone(),
+                        )
                     })
                     .collect();
 
@@ -86,7 +86,7 @@ impl Converter {
                     title: _,
                 } = self.resolve_and_get_stuff(additional_properties);
 
-                Type::Map(key_id, id.clone())
+                Type::new_map(key_id, id.clone())
             }
 
             _ => todo!(

@@ -1,3 +1,5 @@
+use syn::Variant;
+
 use crate::{
     namespace::Name,
     typespace::{InternalId, JsonValue, NameBuilder, StructProperty},
@@ -5,7 +7,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct TypeEnum<Id> {
-    pub name: NameBuilder<Id>,
+    pub name: NameBuilder<InternalId<Id>>,
     pub description: Option<String>,
     pub default: Option<JsonValue>,
     pub tag_type: EnumTagType,
@@ -17,7 +19,7 @@ pub struct TypeEnum<Id> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypeEnumBuilt<Id> {
-    pub name: Name<Id>,
+    pub name: Name<InternalId<Id>>,
 }
 
 impl<Id> TypeEnum<Id>
@@ -32,6 +34,7 @@ where
         variants: Vec<EnumVariant<Id>>,
         deny_unknown_fields: bool,
     ) -> Self {
+        let name = name.into();
         Self {
             name,
             description,
@@ -43,14 +46,14 @@ where
         }
     }
 
-    pub(crate) fn children(&self) -> Vec<Id> {
+    pub(crate) fn children(&self) -> Vec<InternalId<Id>> {
         self.variants
             .iter()
             .flat_map(|variant| variant.children())
             .collect()
     }
 
-    pub(crate) fn children_with_context(&self) -> Vec<(Id, String)> {
+    pub(crate) fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
         self.variants
             .iter()
             .flat_map(|variant| variant.children_with_context())
@@ -91,7 +94,7 @@ impl<Id> EnumVariant<Id>
 where
     Id: Clone,
 {
-    fn children(&self) -> Vec<Id> {
+    fn children(&self) -> Vec<InternalId<Id>> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
             VariantDetails::Item(id) => vec![id.clone()],
@@ -102,7 +105,7 @@ where
         }
     }
 
-    fn children_with_context(&self) -> Vec<(Id, String)> {
+    fn children_with_context(&self) -> Vec<(InternalId<Id>, String)> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
             VariantDetails::Item(id) => vec![(id.clone(), self.rust_name.clone())],
@@ -127,7 +130,17 @@ where
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VariantDetails<Id> {
     Simple,
-    Item(Id),
-    Tuple(Vec<Id>),
+    Item(InternalId<Id>),
+    Tuple(Vec<InternalId<Id>>),
     Struct(Vec<StructProperty<Id>>),
+}
+
+impl<Id> VariantDetails<Id> {
+    pub fn new_simple() -> Self {
+        VariantDetails::Simple
+    }
+
+    pub fn new_item(id: Id) -> Self {
+        VariantDetails::Item(id.into())
+    }
 }
