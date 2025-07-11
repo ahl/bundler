@@ -193,7 +193,7 @@ impl Converter {
                     if let Some(struct_props) = self.xxx_maybe_struct_props(&proto.schemalet) {
                         VariantDetails::Struct(struct_props)
                     } else {
-                        VariantDetails::Item(self.ids.get(&proto.id).unwrap().clone())
+                        VariantDetails::Item(proto.id.clone())
                     };
 
                 EnumVariant {

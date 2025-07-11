@@ -8,25 +8,14 @@ pub use type_enum::*;
 pub use type_struct::*;
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque},
+    collections::{btree_map::Entry, BTreeMap, VecDeque},
     fmt::Display,
 };
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 
-use crate::namespace::Namespace;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TypeId {
-    id: u64,
-}
-
-impl Display for TypeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)
-    }
-}
+use crate::{namespace::Namespace, schemalet::SchemaRef};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NameBuilder {
@@ -38,7 +27,7 @@ pub enum NameBuilder {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NameBuilderHint {
     Title(String),
-    Parent(TypeId, String),
+    Parent(SchemaRef, String),
 }
 
 // 6/25/2025
@@ -72,7 +61,7 @@ pub enum NameBuilderHint {
 //   Something else to consider.
 
 pub struct Typespace {
-    types: BTreeMap<TypeId, Type>,
+    types: BTreeMap<SchemaRef, Type>,
 }
 // TODO this impl is intended just for goofing around. I'm sort of wondering if
 // these types aren't just "builders"
@@ -171,7 +160,7 @@ impl Typespace {
         prettyplease::unparse(&file)
     }
 
-    fn render_ident(&self, id: &TypeId) -> TokenStream {
+    fn render_ident(&self, id: &SchemaRef) -> TokenStream {
         let ty = self.types.get(id).unwrap();
         match ty {
             Type::Enum(type_enum) => {
@@ -282,15 +271,13 @@ impl Typespace {
 }
 
 pub struct TypespaceBuilder {
-    types: BTreeMap<TypeId, Type>,
-    last: TypeId,
+    types: BTreeMap<SchemaRef, Type>,
 }
 
 impl Default for TypespaceBuilder {
     fn default() -> Self {
         Self {
             types: Default::default(),
-            last: TypeId { id: 0 },
         }
     }
 }
@@ -298,12 +285,6 @@ impl Default for TypespaceBuilder {
 // TODO this impl is intended just for goofing around. I'm sort of wondering if
 // these types aren't just "builders"
 impl TypespaceBuilder {
-    pub fn allocate_id(&mut self) -> TypeId {
-        let out = self.last.clone();
-        self.last.id += 1;
-        out
-    }
-
     pub fn render(&self) -> String {
         let types = self.types.iter().map(|(id, typ)| {
             match typ {
@@ -423,7 +404,7 @@ impl TypespaceBuilder {
         prettyplease::unparse(&file)
     }
 
-    fn render_ident(&self, id: &TypeId) -> TokenStream {
+    fn render_ident(&self, id: &SchemaRef) -> TokenStream {
         let ty = self.types.get(id).unwrap();
         match ty {
             Type::Enum(_) | Type::Struct(_) => {
@@ -463,7 +444,7 @@ impl TypespaceBuilder {
 }
 
 impl TypespaceBuilder {
-    pub fn insert(&mut self, id: TypeId, typ: Type) {
+    pub fn insert(&mut self, id: SchemaRef, typ: Type) {
         match self.types.entry(id.into()) {
             Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(typ.into());
@@ -483,7 +464,7 @@ impl TypespaceBuilder {
         // 4. Propagate trait impls
         // 5. Type-specific finalization
 
-        let Self { mut types, last } = self;
+        let Self { mut types } = self;
 
         // TODO 7/2/2025
         // It's all graphs. Think about everything as a graph traversal.
@@ -551,7 +532,7 @@ impl TypespaceBuilder {
             }
         });
 
-        let mut namespace = Namespace::<TypeId>::default();
+        let mut namespace = Namespace::<SchemaRef>::default();
 
         for (id, typ) in &mut types {
             match typ {
@@ -608,14 +589,14 @@ pub enum Type {
     Struct(TypeStruct),
 
     Native(String),
-    Option(TypeId),
+    Option(SchemaRef),
 
-    Box(TypeId),
-    Vec(TypeId),
-    Map(TypeId, TypeId),
-    Set(TypeId),
-    Array(TypeId, usize),
-    Tuple(Vec<TypeId>),
+    Box(SchemaRef),
+    Vec(SchemaRef),
+    Map(SchemaRef, SchemaRef),
+    Set(SchemaRef),
+    Array(SchemaRef, usize),
+    Tuple(Vec<SchemaRef>),
     Unit,
     Boolean,
     /// Integers
@@ -658,7 +639,7 @@ impl Type {
         }
     }
 
-    pub fn children(&self) -> Vec<TypeId> {
+    pub fn children(&self) -> Vec<SchemaRef> {
         match self {
             Type::Enum(type_enum) => type_enum.children(),
             Type::Struct(type_struct) => type_struct.children(),
@@ -682,7 +663,7 @@ impl Type {
         }
     }
 
-    fn children_with_context(&self) -> Vec<(TypeId, String)> {
+    fn children_with_context(&self) -> Vec<(SchemaRef, String)> {
         match self {
             Type::Enum(type_enum) => type_enum.children_with_context(),
             Type::Struct(type_struct) => type_struct.children_with_context(),
@@ -707,7 +688,7 @@ impl Type {
         }
     }
 
-    pub fn contained_children_mut(&mut self) -> Vec<&mut TypeId> {
+    pub fn contained_children_mut(&mut self) -> Vec<&mut SchemaRef> {
         match self {
             Type::Enum(TypeEnum { variants, .. }) => todo!(),
             Type::Struct(TypeStruct { properties, .. }) => todo!(),

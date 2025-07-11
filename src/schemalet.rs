@@ -6,7 +6,7 @@ use std::{
 
 use serde::{ser::SerializeMap, Serialize};
 
-use crate::{bootstrap, typespace::TypeId, Resolved};
+use crate::{bootstrap, Resolved};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SchemaRef {

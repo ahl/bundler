@@ -1,6 +1,7 @@
 use crate::{
     namespace::Name,
-    typespace::{JsonValue, NameBuilder, StructProperty, TypeId},
+    schemalet::SchemaRef,
+    typespace::{JsonValue, NameBuilder, StructProperty},
 };
 
 #[derive(Debug, Clone)]
@@ -17,7 +18,7 @@ pub struct TypeEnum {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypeEnumBuilt {
-    pub name: Name<TypeId>,
+    pub name: Name<SchemaRef>,
 }
 
 impl TypeEnum {
@@ -41,14 +42,14 @@ impl TypeEnum {
         }
     }
 
-    pub(crate) fn children(&self) -> Vec<TypeId> {
+    pub(crate) fn children(&self) -> Vec<SchemaRef> {
         self.variants
             .iter()
             .flat_map(|variant| variant.children())
             .collect()
     }
 
-    pub(crate) fn children_with_context(&self) -> Vec<(TypeId, String)> {
+    pub(crate) fn children_with_context(&self) -> Vec<(SchemaRef, String)> {
         self.variants
             .iter()
             .flat_map(|variant| variant.children_with_context())
@@ -86,7 +87,7 @@ pub struct EnumVariant {
     pub details: VariantDetails,
 }
 impl EnumVariant {
-    fn children(&self) -> Vec<TypeId> {
+    fn children(&self) -> Vec<SchemaRef> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
             VariantDetails::Item(id) => vec![id.clone()],
@@ -97,7 +98,7 @@ impl EnumVariant {
         }
     }
 
-    fn children_with_context(&self) -> Vec<(TypeId, String)> {
+    fn children_with_context(&self) -> Vec<(SchemaRef, String)> {
         match &self.details {
             VariantDetails::Simple => Vec::new(),
             VariantDetails::Item(id) => vec![(id.clone(), self.rust_name.clone())],
@@ -122,7 +123,7 @@ impl EnumVariant {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VariantDetails {
     Simple,
-    Item(TypeId),
-    Tuple(Vec<TypeId>),
+    Item(SchemaRef),
+    Tuple(Vec<SchemaRef>),
     Struct(Vec<StructProperty>),
 }

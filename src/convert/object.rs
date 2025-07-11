@@ -56,7 +56,7 @@ impl Converter {
                             StructPropertyState::Optional,
                             // TODO maybe a helper to pull out descriptions for property meta?
                             description,
-                            self.ids.get(id).unwrap().clone(),
+                            id.clone(),
                         )
                     })
                     .collect();
@@ -86,10 +86,7 @@ impl Converter {
                     title: _,
                 } = self.resolve_and_get_stuff(additional_properties);
 
-                Type::Map(
-                    self.ids.get(&key_id).unwrap().clone(),
-                    self.ids.get(id).unwrap().clone(),
-                )
+                Type::Map(key_id.clone(), id.clone())
             }
 
             _ => todo!(

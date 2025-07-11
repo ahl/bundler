@@ -2,7 +2,8 @@ use syn::Ident;
 
 use crate::{
     namespace::Name,
-    typespace::{JsonValue, NameBuilder, TypeId},
+    schemalet::SchemaRef,
+    typespace::{JsonValue, NameBuilder},
 };
 
 #[derive(Debug, Clone)]
@@ -18,7 +19,7 @@ pub struct TypeStruct {
 
 #[derive(Debug, Clone)]
 struct TypeStructBuilt {
-    name: Name<TypeId>,
+    name: Name<SchemaRef>,
 }
 
 impl TypeStruct {
@@ -38,14 +39,14 @@ impl TypeStruct {
             built: None,
         }
     }
-    pub(crate) fn children(&self) -> Vec<TypeId> {
+    pub(crate) fn children(&self) -> Vec<SchemaRef> {
         self.properties
             .iter()
             .map(|StructProperty { type_id, .. }| type_id.clone())
             .collect()
     }
 
-    pub(crate) fn children_with_context(&self) -> Vec<(TypeId, String)> {
+    pub(crate) fn children_with_context(&self) -> Vec<(SchemaRef, String)> {
         self.properties
             .iter()
             .map(
@@ -63,7 +64,7 @@ pub struct StructProperty {
     pub json_name: StructPropertySerde,
     pub state: StructPropertyState,
     pub description: Option<String>,
-    pub type_id: TypeId,
+    pub type_id: SchemaRef,
 }
 
 impl StructProperty {
@@ -72,7 +73,7 @@ impl StructProperty {
         json_name: StructPropertySerde,
         state: StructPropertyState,
         description: Option<String>,
-        type_id: TypeId,
+        type_id: SchemaRef,
     ) -> Self {
         Self {
             rust_name,

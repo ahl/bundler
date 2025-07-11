@@ -6,25 +6,20 @@ use std::collections::BTreeMap;
 
 use crate::{
     schemalet::{CanonicalSchemalet, CanonicalSchemaletDetails, SchemaRef, SchemaletValue},
-    typespace::{NameBuilder, Type, TypeId},
+    typespace::{NameBuilder, Type},
 };
 
 // TODO naming?
 pub struct Converter {
     graph: BTreeMap<SchemaRef, CanonicalSchemalet>,
     known_names: BTreeMap<SchemaRef, String>,
-    ids: BTreeMap<SchemaRef, TypeId>,
 }
 
 impl Converter {
-    pub fn new(
-        graph: BTreeMap<SchemaRef, CanonicalSchemalet>,
-        ids: BTreeMap<SchemaRef, TypeId>,
-    ) -> Self {
+    pub fn new(graph: BTreeMap<SchemaRef, CanonicalSchemalet>) -> Self {
         Self {
             graph,
             known_names: Default::default(),
-            ids,
         }
     }
 
@@ -73,7 +68,7 @@ impl Converter {
         }
     }
 
-    pub fn convert(&self, id: &SchemaRef) -> (Type, TypeId) {
+    pub fn convert(&self, id: &SchemaRef) -> Type {
         let name = match self.known_names.get(id) {
             Some(s) => NameBuilder::Fixed(s.clone()),
             None => NameBuilder::Unset,
@@ -123,7 +118,7 @@ impl Converter {
             CanonicalSchemaletDetails::Value(SchemaletValue::Null) => todo!(),
         };
 
-        (typ, self.ids.get(id).unwrap().clone())
+        typ
     }
 
     fn convert_string(
