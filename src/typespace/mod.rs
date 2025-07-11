@@ -46,6 +46,31 @@ pub enum NameBuilderHint {
 // finalized form which probably is basically what typify shows today in its
 // public interface.
 
+// 7/11/2025
+// Thinking through some options on this one. At first I really wanted this to
+// be a generic interface that I might be able to use separate from typify. But
+// as I got into it, it was kind of a pain in the neck, and hard to keep
+// everything straight. So I decided to have it use numeric IDs for the types
+// and just map to and from the SchemaRef.
+//
+// That also kind of sucks because I lose the context of the SchemaRef e.g. if
+// I need to report errors. As much as I hate it, I think I should just embed
+// SchemaRef everywhere, get all the way through it, and then figure out if I
+// can clean up the boundaries.
+//
+// At a minimum it seems like I need several different forms of a type:
+// - Builder -- used to create *de novo* types. It would seem convenient to be
+//   able to express these in terms of SchemaRef only. A builder type should be
+//   able to (generically) tell you its dependencies. It's not really meant for
+//   user interaction beyond that.
+// - Internal -- used both before and after finalization; opaque to external
+//   consumers. It's where we might incrementally build the thing. (TODO and
+//   probably requires a bunch more figuring out)
+// - External -- for external consumers of the typify crate e.g. progenitor.
+//   This should only work (probably?) for finalized types. But there might be
+//   situations where we need to know a little about types before finalization.
+//   Something else to consider.
+
 pub struct Typespace {
     types: BTreeMap<TypeId, Type>,
 }
