@@ -194,14 +194,14 @@ where
                 let key_ident = self.render_ident(key_id);
                 let value_ident = self.render_ident(value_id);
                 quote! {
-                    ::std::btreemap::BTreeMap<#key_ident, #value_ident>
+                    ::std::collections::BTreeMap<#key_ident, #value_ident>
                 }
             }
             // Type::Set(_) => todo!(),
             // Type::Array(_, _) => todo!(),
             // Type::Tuple(items) => todo!(),
             // Type::Unit => todo!(),
-            Type::Boolean => quote! { boolean },
+            Type::Boolean => quote! { bool },
             Type::Integer(name) | Type::Float(name) => syn::parse_str::<syn::TypePath>(name)
                 .unwrap()
                 .to_token_stream(),
@@ -594,6 +594,8 @@ where
         // TODO break cycles
         // TODO resolve names
         // TODO propagate trait impls
+
+        // Break cycles
 
         Ok(Typespace { types })
     }
