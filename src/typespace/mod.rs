@@ -73,98 +73,95 @@ where
     Id: TypeId,
 {
     pub fn render(&self) -> String {
-        let types = self.types.iter().map(|(id, typ)| {
-            match typ {
-                Type::Enum(type_enum) => {
-                    let TypeEnum {
-                        name,
+        let types = self.types.iter().map(|(id, typ)| match typ {
+            Type::Enum(type_enum) => {
+                let TypeEnum {
+                    name,
+                    description,
+                    default,
+                    tag_type,
+                    variants,
+                    deny_unknown_fields,
+                    built,
+                } = type_enum;
+                let description = description.as_ref().map(|desc| quote! { #[doc = #desc ]});
+                let serde = match tag_type {
+                    EnumTagType::External => TokenStream::new(),
+                    EnumTagType::Internal { tag } => quote! {
+                        #[serde(tag = #tag)]
+                    },
+                    EnumTagType::Adjacent { tag, content } => quote! {
+                        #[serde(tag = #tag, content = #content)]
+                    },
+                    EnumTagType::Untagged => quote! {
+                        #[serde(untagged)]
+                    },
+                };
+
+                let variants = variants.iter().map(|variant| {
+                    let EnumVariant {
+                        rust_name,
+                        rename,
                         description,
-                        default,
-                        tag_type,
-                        variants,
-                        deny_unknown_fields,
-                        built,
-                    } = type_enum;
-                    // let name = format_ident!("{}", name);
-                    let description = description.as_ref().map(|desc| quote! { #[doc = #desc ]});
-                    let serde = match tag_type {
-                        EnumTagType::External => TokenStream::new(),
-                        EnumTagType::Internal { tag } => quote! {
-                            #[serde(tag = #tag)]
-                        },
-                        EnumTagType::Adjacent { tag, content } => quote! {
-                            #[serde(tag = #tag, content = #content)]
-                        },
-                        EnumTagType::Untagged => quote! {
-                            #[serde(untagged)]
-                        },
-                    };
-
-                    let variants = variants.iter().map(|variant| {
-                        let EnumVariant {
-                            rust_name,
-                            rename,
-                            description,
-                            details,
-                        } = variant;
-                        let name = format_ident!("{}", rust_name);
-                        let variant_serde = rename.as_ref().map(|n| {
-                            quote! {
-                                #[serde(rename(#n))]
-                            }
-                        });
-                        let description =
-                            description.as_ref().map(|desc| quote! { #[doc = #desc ]});
-
-                        let data = match details {
-                            VariantDetails::Simple => TokenStream::new(),
-                            VariantDetails::Item(item) => {
-                                let item_ident = self.render_ident(item);
-                                quote! {
-                                    (#item_ident)
-                                }
-                            }
-                            VariantDetails::Tuple(items) => todo!(),
-                            VariantDetails::Struct(properties) => {
-                                let properties = properties
-                                    .iter()
-                                    .map(|struct_prop| self.render_struct_property(struct_prop));
-                                quote! {
-                                    {
-                                        #( #properties, )*
-                                    }
-                                }
-                            }
-                        };
-
+                        details,
+                    } = variant;
+                    let name = format_ident!("{}", rust_name);
+                    let variant_serde = rename.as_ref().map(|n| {
                         quote! {
-                            #description
-                            #variant_serde
-                            #name #data
+                            #[serde(rename = #n)]
                         }
                     });
+                    let description = description.as_ref().map(|desc| quote! { #[doc = #desc ]});
 
-                    let xxx_doc_str = id.to_string();
-                    let xxx_doc = quote! { #[doc = #xxx_doc_str] };
-
-                    let name = built.as_ref().unwrap().name.to_string();
-                    let name_ident = format_ident!("{name}");
+                    let data = match details {
+                        VariantDetails::Simple => TokenStream::new(),
+                        VariantDetails::Item(item) => {
+                            let item_ident = self.render_ident(item);
+                            quote! {
+                                (#item_ident)
+                            }
+                        }
+                        VariantDetails::Tuple(items) => todo!(),
+                        VariantDetails::Struct(properties) => {
+                            let properties = properties
+                                .iter()
+                                .map(|struct_prop| self.render_struct_property(struct_prop));
+                            quote! {
+                                {
+                                    #( #properties, )*
+                                }
+                            }
+                        }
+                    };
 
                     quote! {
-                        #xxx_doc
                         #description
-                        #serde
-                        pub enum #name_ident {
-                            #( #variants, )*
-                        }
+                        #variant_serde
+                        #name #data
+                    }
+                });
+
+                let xxx_doc_str = id.to_string();
+                let xxx_doc = quote! { #[doc = #xxx_doc_str] };
+
+                let name = built.as_ref().unwrap().name.to_string();
+                let name_ident = format_ident!("{name}");
+
+                quote! {
+                    #xxx_doc
+                    #description
+                    #[derive(::serde::Deserialize, ::serde::Serialize)]
+                    #serde
+                    pub enum #name_ident {
+                        #( #variants, )*
                     }
                 }
-                Type::Struct(type_struct) => {
-                    println!("{:#?}", type_struct);
-                    todo!()
-                }
-                _ => quote! {},
             }
+            Type::Struct(type_struct) => {
+                println!("{:#?}", type_struct);
+                todo!()
+            }
+            _ => quote! {},
         });
         let file = parse_quote! {
             #( #types )*
