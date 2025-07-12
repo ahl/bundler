@@ -8,7 +8,7 @@ pub use type_enum::*;
 pub use type_struct::*;
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap, VecDeque},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque},
     fmt::Display,
 };
 
@@ -173,7 +173,12 @@ impl Typespace {
             }
             // Type::Native(_) => todo!(),
             // Type::Option(_) => todo!(),
-            // Type::Box(_) => todo!(),
+            Type::Box(boxed_id) => {
+                let boxed_ident = self.render_ident(boxed_id);
+                quote! {
+                    ::std::boxed::Box<#boxed_ident>
+                }
+            }
             Type::Vec(inner_id) => {
                 let inner_ident = self.render_ident(inner_id);
                 quote! {
@@ -578,8 +583,134 @@ impl TypespaceBuilder {
         // TODO propagate trait impls
 
         // Break cycles
+        break_cycles(&mut types);
 
         Ok(Typespace { types })
+    }
+}
+
+fn break_cycles(types: &mut BTreeMap<SchemaRef, Type>) {
+    enum Node {
+        Start {
+            type_id: SchemaRef,
+        },
+        Processing {
+            type_id: SchemaRef,
+            children_ids: Vec<SchemaRef>,
+        },
+    }
+
+    let mut visited = BTreeSet::<SchemaRef>::new();
+
+    let type_ids = types.keys().cloned().collect::<Vec<_>>();
+
+    for type_id in type_ids {
+        if visited.contains(&type_id) {
+            continue;
+        }
+
+        let mut active = BTreeSet::<SchemaRef>::new();
+        let mut stack = Vec::<Node>::new();
+
+        active.insert(type_id.clone());
+        stack.push(Node::Start { type_id });
+
+        while let Some(top) = stack.last_mut() {
+            match top {
+                // Skip right to the end since we've already seen this type.
+                Node::Start { type_id } if visited.contains(type_id) => {
+                    assert!(active.contains(type_id));
+
+                    let type_id = type_id.clone();
+                    *top = Node::Processing {
+                        type_id,
+                        children_ids: Vec::new(),
+                    };
+                }
+
+                // Break any immediate cycles and queue up this type for
+                // descent into its child types.
+                Node::Start { type_id } => {
+                    assert!(active.contains(type_id));
+
+                    visited.insert(type_id.clone());
+
+                    // Determine which child types form cycles--and
+                    // therefore need to be snipped--and the rest--into
+                    // which we should descend. We make this its own block
+                    // to clarify the lifetime of the exclusive reference
+                    // to the type. We don't really *need* to have an
+                    // exclusive reference here, but there's no point in
+                    // writing `get_child_ids` again for shared references.
+                    let (snip, descend) = {
+                        let typ = types.get_mut(type_id).unwrap();
+
+                        let child_ids = typ
+                            .contained_children_mut()
+                            .into_iter()
+                            .map(|child_id| child_id.clone());
+
+                        // If the child type is in active then we've found
+                        // a cycle (otherwise we'll descend).
+                        child_ids.partition::<Vec<_>, _>(|child_id| active.contains(child_id))
+                    };
+
+                    // Note that while `snip` might contain duplicates,
+                    // `id_to_box` is idempotent insofar as the same input
+                    // TypeId will result in the same output TypeId. Ergo
+                    // the resulting pairs from which we construct the
+                    // mapping would contain exact duplicates; it would not
+                    // contain two values associated with the same key.
+                    let replace = snip
+                        .into_iter()
+                        .map(|type_id| {
+                            let box_id = SchemaRef::Box(Box::new(type_id.clone()));
+                            let box_typ = Type::Box(type_id.clone());
+                            types.insert(box_id.clone(), box_typ);
+
+                            (type_id, box_id)
+                        })
+                        .collect::<BTreeMap<SchemaRef, SchemaRef>>();
+
+                    // Break any cycles by reassigning the child type to a box.
+                    let typ = types.get_mut(type_id).unwrap();
+
+                    let child_ids = typ.contained_children_mut();
+                    // let type_entry = self.id_to_entry.get_mut(type_id).unwrap();
+                    // let child_ids = get_child_ids(type_entry);
+                    for child_id in child_ids {
+                        if let Some(replace_id) = replace.get(child_id) {
+                            *child_id = replace_id.clone();
+                        }
+                    }
+
+                    // Descend into child types.
+                    let node = Node::Processing {
+                        type_id: type_id.clone(),
+                        children_ids: descend,
+                    };
+                    *top = node;
+                }
+
+                // If there are children left, push the next child onto the
+                // stack. If there are none left, pop this type.
+                Node::Processing {
+                    type_id,
+                    children_ids,
+                } => {
+                    if let Some(type_id) = children_ids.pop() {
+                        // Descend into the next child node.
+                        active.insert(type_id.clone());
+                        stack.push(Node::Start { type_id });
+                    } else {
+                        // All done; remove the item from the active list
+                        // and stack.
+                        active.remove(type_id);
+                        let _ = stack.pop();
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -690,22 +821,42 @@ impl Type {
 
     pub fn contained_children_mut(&mut self) -> Vec<&mut SchemaRef> {
         match self {
-            Type::Enum(TypeEnum { variants, .. }) => todo!(),
+            Type::Enum(TypeEnum { variants, .. }) => {
+                let mut out = Vec::new();
+                for variant in variants {
+                    match &mut variant.details {
+                        VariantDetails::Simple => {}
+                        VariantDetails::Item(schema_ref) => {
+                            out.push(schema_ref);
+                        }
+                        VariantDetails::Tuple(schema_refs) => {
+                            out.extend(schema_refs);
+                        }
+                        VariantDetails::Struct(props) => {
+                            for StructProperty { type_id, .. } in props {
+                                out.push(type_id);
+                            }
+                        }
+                    }
+                }
+                out
+            }
             Type::Struct(TypeStruct { properties, .. }) => todo!(),
             Type::Native(_) => todo!(),
             Type::Option(_) => todo!(),
-            Type::Box(_) => todo!(),
-            Type::Vec(_) => todo!(),
-            Type::Map(_, _) => todo!(),
-            Type::Set(_) => todo!(),
             Type::Array(_, _) => todo!(),
             Type::Tuple(items) => todo!(),
-            Type::Unit => todo!(),
-            Type::Boolean => todo!(),
-            Type::Integer(_) => todo!(),
-            Type::Float(_) => todo!(),
-            Type::String => todo!(),
-            Type::JsonValue => todo!(),
+
+            Type::Box(_)
+            | Type::Vec(_)
+            | Type::Map(_, _)
+            | Type::Set(_)
+            | Type::Unit
+            | Type::Boolean
+            | Type::Integer(_)
+            | Type::Float(_)
+            | Type::String
+            | Type::JsonValue => Default::default(),
         }
     }
 }

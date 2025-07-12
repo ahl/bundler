@@ -20,6 +20,7 @@ pub enum SchemaRef {
         no: Vec<SchemaRef>,
     },
     Internal(String),
+    Box(Box<SchemaRef>),
 }
 
 impl SchemaRef {
@@ -71,6 +72,10 @@ impl Display for SchemaRef {
             SchemaRef::Internal(s) => {
                 f.write_str("internal@")?;
                 f.write_str(s)
+            }
+            SchemaRef::Box(id) => {
+                f.write_str("box@")?;
+                id.fmt(f)
             }
         }
     }
