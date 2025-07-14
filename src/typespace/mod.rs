@@ -7,10 +7,7 @@ pub use type_common::*;
 pub use type_enum::*;
 pub use type_struct::*;
 
-use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque},
-    fmt::Display,
-};
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque};
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};

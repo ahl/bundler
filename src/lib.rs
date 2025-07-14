@@ -28,6 +28,7 @@ mod loader;
 pub mod namespace;
 pub mod schemalet;
 pub mod typespace;
+pub mod typify;
 pub mod typify_draft;
 
 pub use loader::*;

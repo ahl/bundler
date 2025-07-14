@@ -527,6 +527,47 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // - Multiple JSON Schema specifications
 // - Generalized references (i.e. not just to $defs)
 
+// 7/14/2025
+// There's definitely something working here end-to-end! I think the next steps
+// are to package it up a little more cleanly. One of the things I'm struggling
+// with is the various concepts and naming. In particular, I want to figure out
+// what I want to call things externally--I think that's going to unblock me.
+//
+// Here are the various concepts and phases:
+//
+// The Bundler is what manages a collection of inputs. I generally think of
+// these as JSON, but they'll be derived from yaml in the future as well. This
+// concept will be part of the external interface--it might even be a separate
+// crate--but it shouldn't be obtrusive if someone just wants to do JSON text
+// -> types.
+//
+// JSON -> IR -> Canonical: For want of a better term, I'll call this next part
+// the Optimizer. What I have today is going to need some work, but it's not
+// that bad. This builds up a couple of graphs that I think I need to keep
+// around until all the types the user wants have been added. It's conceivable
+// that this too is outward facing or has its own crate--but that's down the
+// track. I'm convinced that this canonical format is going to be useful to
+// other code generation tools, but let's prove it for this one first.
+//
+// The Converter takes this canonical representation and converts them to
+// types. I think it's basically a pure function and doesn't require mutability
+// or even caching (the caching should--effectively--be done by the Optimizer).
+//
+// The Typespace is the high-order output of this whole thing: a structure that
+// manages types. Users can interrogate the types and emit code. This is
+// another subcomponent that feels generic: it could be used for generating
+// types derived from some other source e.g. TypeSpec.
+//
+// Where does this leave us with the name of the WHOLE thing? After a little
+// chat with an LLM, I think I'm going to call it "Typify". Also some good
+// renaming ideas for concepts above:
+//
+// - Input aggregator: SchemaBundle
+// - Schema → canonical IR: Normalizer
+// - Canonical → types: Converter
+// - Type registry/codegen: Typespace
+// - Top-level user-facing API: Typify
+
 fn schemalet(bundle: Bundle, context: bundler::Context) {
     let root_id = bundler::schemalet::SchemaRef::Id(format!("{}#", context.location));
 
