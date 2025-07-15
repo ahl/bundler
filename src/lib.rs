@@ -223,6 +223,15 @@ impl Bundle {
         ref_url.to_string()
     }
 
+    pub fn resolve_root(&self, id: impl AsRef<str>) -> Result<Resolved, Error> {
+        let context = Context {
+            location: url::Url::parse(id.as_ref()).unwrap(),
+            dyn_anchors: Default::default(),
+        };
+
+        self.resolve(&context, "")
+    }
+
     fn xxx_url(base: &Url, reference: &str) -> (DocumentId, String) {
         let mut ref_url = base.join(reference).unwrap();
         DocumentId::from_url(ref_url)

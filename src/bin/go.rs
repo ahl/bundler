@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bundler::{
-    ir, ir2,
-    namespace::{self, Namespace},
-    schemalet::{schemalet_print, schemalet_to_type, to_schemalets},
-    typespace::{Typespace, TypespaceBuilder},
-    xxx_to_ir, xxx_to_ir2, Bundle, FileMapLoader, Resolved,
+    ir2,
+    schemalet::{schemalet_print, to_schemalets},
+    typespace::TypespaceBuilder,
+    xxx_to_ir2, Bundle, FileMapLoader,
 };
 use url::Url;
 
@@ -718,6 +717,10 @@ fn typify(
 
     let mut typespace = TypespaceBuilder::default();
 
+    // For an object with additionalProperties specified, we end up making some
+    // sort of Map. We need this to define the type for the key for the map.
+    // This is kind of terrible and it would be nice to find a way to make this
+    // a bit more fluid.
     canonical.insert(
         bundler::schemalet::SchemaRef::Internal("string".to_string()),
         bundler::schemalet::CanonicalSchemalet {
