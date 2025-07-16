@@ -458,6 +458,10 @@ impl TypespaceBuilder {
         }
     }
 
+    pub fn contains_type(&self, id: &SchemaRef) -> bool {
+        self.types.contains_key(id)
+    }
+
     pub fn finalize(self) -> Result<Typespace, ()> {
         // Basic steps:
         // 1. Construct the parent and child adjacency lists

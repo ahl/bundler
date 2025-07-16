@@ -4,6 +4,7 @@ use bundler::{
     ir2,
     schemalet::{schemalet_print, to_schemalets},
     typespace::TypespaceBuilder,
+    typify::Typify,
     xxx_to_ir2, Bundle, FileMapLoader,
 };
 use url::Url;
@@ -230,7 +231,9 @@ fn main() {
 
     // ir2(bundle, context);
 
-    schemalet(bundle, context);
+    // schemalet(bundle, context);
+
+    cargo_typify(bundle, context);
 }
 
 fn ir2(bundle: Bundle, context: bundler::Context) {
@@ -566,6 +569,16 @@ fn ir2(bundle: Bundle, context: bundler::Context) {
 // - Canonical → types: Converter
 // - Type registry/codegen: Typespace
 // - Top-level user-facing API: Typify
+//
+// SchemaBundle is going to be public in some fashion--progenitor at least will
+// need to interact with it. As will cargo-typify.
+// The Normalizer seems useful, but it's fine for it to start private. The only
+// interesting public-ish use is going to be in testing where we want to print
+// the canonical IR.
+// The Converter is 100% the point of typify and is an internal concept.
+// Typespace is another external concept. Also something I expect progenitor is
+// going to interact with when asking programmatic questions about generated
+// types.
 
 fn schemalet(bundle: Bundle, context: bundler::Context) {
     let root_id = bundler::schemalet::SchemaRef::Id(format!("{}#", context.location));
@@ -750,15 +763,12 @@ fn typify(
 
     converter.set_name(root_id.clone(), "SchemaRoot".to_string());
 
-    let mut work = VecDeque::from([root_id.clone()]);
-
-    let mut done = BTreeSet::<bundler::schemalet::SchemaRef>::new();
+    let mut work = VecDeque::from([root_id]);
 
     while let Some(id) = work.pop_front() {
-        if done.contains(&id) {
+        if typespace.contains_type(&id) {
             continue;
         }
-        done.insert(id.clone());
 
         // TODO 7/2/2025
         // Not sure if this is the right place to look for a name, but maybe
@@ -799,4 +809,19 @@ fn typify(
     println!("file\n{out}");
 
     todo!("done?");
+}
+
+fn cargo_typify(bundle: Bundle, context: bundler::Context) {
+    let mut typify = Typify::new_with_bundle(bundle);
+
+    let _type_id = typify
+        .add_type_by_id(&context.location.to_string())
+        .unwrap();
+
+    let typespace = typify.into_typespace();
+
+    let out = typespace.render();
+    println!("file\n{out}");
+
+    todo!("cargo typify done?");
 }

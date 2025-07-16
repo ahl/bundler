@@ -28,7 +28,9 @@ impl Converter {
     }
 
     fn get<'a>(&'a self, id: &SchemaRef) -> &'a CanonicalSchemalet {
-        self.graph.get(id).unwrap()
+        self.graph
+            .get(id)
+            .unwrap_or_else(|| panic!("failed to lookup {id}"))
     }
 
     fn resolve<'a>(&'a self, mut id: &'a SchemaRef) -> &'a CanonicalSchemalet {

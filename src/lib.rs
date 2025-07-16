@@ -233,7 +233,7 @@ impl Bundle {
     }
 
     fn xxx_url(base: &Url, reference: &str) -> (DocumentId, String) {
-        let mut ref_url = base.join(reference).unwrap();
+        let ref_url = base.join(reference).unwrap();
         DocumentId::from_url(ref_url)
     }
 
